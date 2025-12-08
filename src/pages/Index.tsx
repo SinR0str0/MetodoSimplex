@@ -80,7 +80,7 @@ export default function Index() {
             </div>
 
             <ResultDisplay result={result} numVariables={numVariables} />
-
+            
             {result.iterations.length > 0 && (
               <div className="space-y-6">
                 <h2 className="text-2xl font-bold text-center">Iteraciones del Método Simplex</h2>

@@ -30,7 +30,6 @@ export interface IterationData {
   enteringVariable: number | null;
   leavingVariable: number | null;
   detB: number;
-  elementaryMatrices?: Matrix[];
 }
 
 export interface SimplexResult {
@@ -39,9 +38,11 @@ export interface SimplexResult {
   iterations: IterationData[];
   optimalSolution?: number[];
   optimalValue?: number;
+  hasMultipleSolutions?: boolean;
+
 }
 
-function convertToStandardForm(input: SimplexInput, phase : 'I'|'II'='II'): {
+function convertToStandardForm(input: SimplexInput, phase: 'I' | 'II' = 'II'): {
   A: Matrix;
   b: number[];
   c: number[];
@@ -53,7 +54,6 @@ function convertToStandardForm(input: SimplexInput, phase : 'I'|'II'='II'): {
   let numSlackVars = 0;
   let numArtificialVars = 0;
 
-  // Contar variables de holgura y artificiales
   constraints.forEach(constraint => {
     if (constraint.type === '<=') {
       numSlackVars++;
@@ -71,29 +71,26 @@ function convertToStandardForm(input: SimplexInput, phase : 'I'|'II'='II'): {
   const c: number[] = [];
 
   if (phase === 'I') {
-    // Fase I: penalizar SOLO variables artificiales
+    // Fase I: minimizar suma de artificiales
     for (let i = 0; i < numVariables + numSlackVars; i++) c.push(0);
-    for (let i = 0; i < numArtificialVars; i++) c.push(1); // min W = sum(a_i)
+    for (let i = 0; i < numArtificialVars; i++) c.push(1);
   } else {
-    // Fase II: función objetivo original
+    // Fase II: función objetivo original (convertida a max)
     for (let i = 0; i < numVariables; i++) {
-      c.push(input.problemType === 'max' ? input.objectiveCoefficients[i] : -input.objectiveCoefficients[i]);
+      c.push(problemType === 'max' ? objectiveCoefficients[i] : -objectiveCoefficients[i]);
     }
     for (let i = 0; i < numSlackVars; i++) c.push(0);
-    for (let i = 0; i < numArtificialVars; i++) c.push(0); // ya no penalizamos
+    for (let i = 0; i < numArtificialVars; i++) c.push(0);
   }
 
-  // Construir matriz A
   let slackIndex = numVariables;
   let artificialIndex = numVariables + numSlackVars;
 
   constraints.forEach((constraint, i) => {
-    // Coeficientes de variables originales
     for (let j = 0; j < numVariables; j++) {
       A.data[i][j] = constraint.coefficients[j];
     }
 
-    // Agregar variables de holgura/artificiales según tipo de restricción
     if (constraint.type === '<=') {
       A.data[i][slackIndex] = 1;
       slackIndex++;
@@ -117,69 +114,71 @@ function findInitialBasis(A: Matrix, numVariables: number, numSlackVars: number,
   const basicVariables: number[] = [];
   const totalVars = A.cols;
 
-  // Intentar usar variables de holgura y artificiales como base inicial
   for (let i = numVariables; i < totalVars; i++) {
     basicVariables.push(i);
     if (basicVariables.length === A.rows) break;
   }
 
+  // Si no hay suficientes, usa variables originales (raro)
+  if (basicVariables.length < A.rows) {
+    for (let i = 0; i < numVariables && basicVariables.length < A.rows; i++) {
+      if (!basicVariables.includes(i)) {
+        basicVariables.push(i);
+      }
+    }
+  }
+
   return basicVariables;
 }
 
-export function solveSimplex(input: SimplexInput): SimplexResult {
+// MOTOR SIMPLEX
+function solveSimplexCore(
+  A: Matrix,
+  b: number[],
+  c: number[],
+  initialBasicVariables: number[],
+  problemType: 'max' | 'min'
+): SimplexResult {
   try {
-    const { A, b, c, numSlackVars, numArtificialVars } = convertToStandardForm(input);
     const iterations: IterationData[] = [];
     const maxIterations = 100;
+    const n = A.rows;
 
-    // Encontrar base inicial
-    const initialBasicVariables = findInitialBasis(A, input.numVariables, numSlackVars, numArtificialVars);
     let basicVariables = [...initialBasicVariables];
     let nonBasicVariables = Array.from({ length: A.cols }, (_, i) => i).filter(i => !basicVariables.includes(i));
 
-    let Binv = getIdentityMatrix(A.rows);
-    
+    let Binv = getIdentityMatrix(n);
+
     for (let iter = 0; iter < maxIterations; iter++) {
-      // Extraer matriz base B
       const B = extractColumns(A, basicVariables);
       const detB = calculateDeterminant(B);
-
       if (Math.abs(detB) < 1e-10) {
         return {
           success: false,
-          message: 'Error: La matriz base es singular (determinante = 0)',
+          message: 'Matriz base singular',
           iterations
         };
       }
 
-      // Calcular CB (coeficientes de variables básicas)
       const CB = basicVariables.map(i => c[i]);
-
-      // Calcular XB = B^-1 * b
       const XB = multiplyMatrixVector(Binv, b);
       if (XB.some(x => x < -1e-6)) {
-        return { success: false, message: 'Error: Solución no factible', iterations };
+        return { success: false, message: 'Solución no factible', iterations };
       }
 
-      // Calcular Z
       let Z = 0;
-      for (let i = 0; i < CB.length; i++) {
-        Z += CB[i] * XB[i];
-      }
+      for (let i = 0; i < CB.length; i++) Z += CB[i] * XB[i];
 
-      // Calcular Zj - Cj para todas las variables
       const ZjCj: number[] = [];
       for (let j = 0; j < A.cols; j++) {
         const column = A.data.map(row => row[j]);
         const Aj = multiplyMatrixVector(Binv, column);
         let Zj = 0;
-        for (let i = 0; i < CB.length; i++) {
-          Zj += CB[i] * Aj[i];
-        }
+        for (let i = 0; i < CB.length; i++) Zj += CB[i] * Aj[i];
+        // Usamos Zj - Cj para ambos casos; la selección de variable entrante se basa en el signo
         ZjCj.push(Zj - c[j]);
       }
 
-      // Determinar variable de entrada (más negativa para max)
       let enteringVariable: number | null = null;
       let minZjCj = 0;
       for (const j of nonBasicVariables) {
@@ -189,7 +188,6 @@ export function solveSimplex(input: SimplexInput): SimplexResult {
         }
       }
 
-      // Guardar iteración actual
       iterations.push({
         iteration: iter,
         A: copyMatrix(A),
@@ -207,88 +205,144 @@ export function solveSimplex(input: SimplexInput): SimplexResult {
         detB,
       });
 
-      // Verificar optimalidad
       if (enteringVariable === null) {
-        // Solución óptima encontrada
+        // 🔍 Verificar si hay soluciones múltiples
+        let hasMultipleSolutions = false;
+        for (const j of nonBasicVariables) {
+          if (Math.abs(ZjCj[j]) < 1e-6) { // Zj - Cj ≈ 0
+            hasMultipleSolutions = true;
+            break;
+          }
+        }
+
         const optimalSolution = Array(A.cols).fill(0);
         for (let i = 0; i < basicVariables.length; i++) {
           optimalSolution[basicVariables[i]] = XB[i];
         }
 
+        const finalOptimalValue = problemType === 'max' ? Z : -Z;
+
         return {
           success: true,
-          message: 'Solución óptima encontrada',
+          message: hasMultipleSolutions 
+            ? 'Solución óptima encontrada (múltiples soluciones)' 
+            : 'Solución óptima encontrada',
           iterations,
-          optimalSolution: optimalSolution.slice(0, input.numVariables),
-          optimalValue: input.problemType === 'max' ? Z : -Z
+          optimalSolution,
+          optimalValue: finalOptimalValue,
+          hasMultipleSolutions // 👈 Incluir en el resultado
         };
       }
 
-      // Calcular columna de entrada
       const enteringColumn = A.data.map(row => row[enteringVariable]);
-      const yj = multiplyMatrixVector(Binv, enteringColumn);
+      const y = multiplyMatrixVector(Binv, enteringColumn);
 
-      // Determinar variable de salida (razón mínima)
-      let leavingVariable: number | null = null;
       let minRatio = Infinity;
-      let leavingIndex = -1;
+      let pivotRow = -1;
+      let leavingVariable: number | null = null;
 
-      for (let i = 0; i < yj.length; i++) {
-        if (yj[i] > 1e-6) {
-          const ratio = XB[i] / yj[i];
-          if (ratio < minRatio) {
+      for (let i = 0; i < y.length; i++) {
+        if (y[i] > 1e-6) {
+          const ratio = XB[i] / y[i];
+          const candidateVar = basicVariables[i]; // ← índice de la variable
+
+          if (ratio < minRatio - 1e-6) {
+            // Nuevo mínimo: actualizar todo
             minRatio = ratio;
-            leavingVariable = basicVariables[i];
-            leavingIndex = i;
+            pivotRow = i;
+            leavingVariable = candidateVar;
+          } else if (Math.abs(ratio - minRatio) < 1e-6) {
+            // Empate en ratio: aplicar Bland (menor índice de variable)
+            if (leavingVariable === null || candidateVar < leavingVariable) {
+              pivotRow = i;
+              leavingVariable = candidateVar;
+            }
           }
         }
       }
 
-      // Si no se encontró variable de salida → problema no acotado
       if (leavingVariable === null) {
         return {
           success: false,
-          message: 'Error: Solución no acotada',
+          message: 'Problema no acotado',
           iterations
         };
       }
-      
-      // Actualizar Binv
-      const pivotValue = yj[leavingIndex];
-      const E = createElementaryMatrix(A.rows, leavingIndex, leavingIndex, pivotValue, yj);
+
+      const pivotValue = y[pivotRow];
+      const E = createElementaryMatrix(n, pivotRow, pivotRow, pivotValue, y);
       Binv = multiplyMatrices(E, Binv);
 
-      // Actualizar base
-      basicVariables[leavingIndex] = enteringVariable;
+      basicVariables[pivotRow] = enteringVariable;
       nonBasicVariables = nonBasicVariables.filter(v => v !== enteringVariable);
       nonBasicVariables.push(leavingVariable);
 
-      // Registrar variable de salida en la iteración
       iterations[iterations.length - 1].leavingVariable = leavingVariable;
-
-      
-      // Actualizar variable de salida en la última iteración
-      iterations[iterations.length - 1].leavingVariable = leavingVariable;
-
-      // Actualizar base: reemplazar variable saliente por entrante
-      basicVariables[leavingIndex] = enteringVariable;
-      nonBasicVariables = nonBasicVariables.filter(v => v !== enteringVariable);
-      nonBasicVariables.push(leavingVariable);
-
     }
 
-    // Si llegamos aquí, se alcanzó el máximo de iteraciones
     return {
       success: false,
-      message: 'Error: Se alcanzó el número máximo de iteraciones',
+      message: 'Máximo de iteraciones alcanzado',
       iterations
     };
 
   } catch (error) {
     return {
       success: false,
-      message: `Error: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+      message: `Error: ${error instanceof Error ? error.message : 'desconocido'}`,
       iterations: []
     };
   }
+}
+
+export function solveSimplex(input: SimplexInput): SimplexResult {
+  // Convertir a forma estándar (Fase II) para contar artificiales
+  const { A, b, c: cPhaseII, numSlackVars, numArtificialVars } = convertToStandardForm(input, 'II');
+  
+  const initialBasicVariables = findInitialBasis(A, input.numVariables, numSlackVars, numArtificialVars);
+
+  // No hay artificiales → resolver directamente
+  if (numArtificialVars === 0) {
+    return solveSimplexCore(A, b, cPhaseII, initialBasicVariables, input.problemType);
+  }
+  alert('Hay variables artificiales, se usará el método de Dos Fases.');
+  return{
+    success: false,
+    message: 'El método de Dos Fases no está implementado actualmente.',
+    iterations: []
+  }
+  /*
+  // Hay artificiales → usar Dos Fases
+
+  // Fase I: minimizar W = sum(a_i)
+  const { c: cPhaseI } = convertToStandardForm(input, 'I');
+  const phaseIResult = solveSimplexCore(A, b, cPhaseI, initialBasicVariables, 'min');
+
+  if (!phaseIResult.success) {
+    return { ...phaseIResult, message: 'Error en Fase I: ' + phaseIResult.message };
+  }
+
+  // Verificar factibilidad
+  if (phaseIResult.optimalValue! > 1e-6) {
+    return { 
+      success: false, 
+      message: 'Problema infactible: no existe solución factible', 
+      iterations: phaseIResult.iterations 
+    };
+  }
+
+  // Fase II: usar la base final de la Fase I
+  const finalBasicVars = phaseIResult.iterations.length > 0
+    ? [...phaseIResult.iterations[phaseIResult.iterations.length - 1].basicVariables]
+    : initialBasicVariables;
+
+  const phaseIIResult = solveSimplexCore(A, b, cPhaseII, finalBasicVars, input.problemType);
+
+  // Eliminar variables artificiales del resultado final
+  if (phaseIIResult.success && phaseIIResult.optimalSolution) {
+    phaseIIResult.optimalSolution = phaseIIResult.optimalSolution.slice(0, input.numVariables);
+  }
+
+  return phaseIIResult;
+  */
 }

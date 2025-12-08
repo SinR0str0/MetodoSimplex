@@ -33,13 +33,13 @@ export default function InputForm({ onSubmit }: InputFormProps) {
     const vars = parseInt(numVariables);
     const constraints = parseInt(numConstraints);
 
-    if (vars < 1 || vars > 10) {
-      alert('El número de variables debe estar entre 1 y 10');
+    if (vars < 1 || vars > 100) {
+      alert('El número de variables debe estar entre 1 y 100');
       return;
     }
 
-    if (constraints < 1 || constraints > 10) {
-      alert('El número de restricciones debe estar entre 1 y 10');
+    if (constraints < 1 || constraints > 100) {
+      alert('El número de restricciones debe estar entre 1 y 100');
       return;
     }
 
@@ -62,7 +62,7 @@ export default function InputForm({ onSubmit }: InputFormProps) {
                 id="numVariables"
                 type="number"
                 min="1"
-                max="10"
+                max="100"
                 value={numVariables}
                 onChange={(e) => setNumVariables(e.target.value)}
                 required
@@ -76,7 +76,7 @@ export default function InputForm({ onSubmit }: InputFormProps) {
                 id="numConstraints"
                 type="number"
                 min="1"
-                max="10"
+                max="100"
                 value={numConstraints}
                 onChange={(e) => setNumConstraints(e.target.value)}
                 required

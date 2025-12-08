@@ -43,6 +43,9 @@ export default function ResultDisplay({ result, numVariables }: ResultDisplayPro
               <h3 className="text-xl font-semibold">Valor Óptimo de la Función Objetivo:</h3>
               <p className="text-3xl font-bold text-blue-600">
                 Z = {formatNumber(result.optimalValue)}
+                {result.hasMultipleSolutions && (
+                  <span className="text-sm font-normal text-muted-foreground ml-4">Soluciones Múltiples </span>
+                )}
               </p>
             </div>
 
