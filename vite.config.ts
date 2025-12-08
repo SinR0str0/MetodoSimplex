@@ -1,23 +1,18 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react-swc';
 import path from 'path';
-import { viteSourceLocator } from '@metagptx/vite-plugin-source-locator';
 
-// https://vitejs.dev/config/
-export default defineConfig(({ mode }) => ({
+export default defineConfig({
   plugins: [
-    viteSourceLocator({
-      prefix: 'mgx',
-    }),
-    react(),
+    react(), // suficiente para la mayoría de los proyectos React + TS
   ],
-  server: {
-    watch: { usePolling: true, interval: 800 /* 300~1500 */ },
-  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
   },
-}));
-
+  server: {
+    // Solo incluye esto si estás en WSL, Docker o tienes problemas con los hot reloads
+    // watch: { usePolling: true, interval: 800 },
+  },
+});

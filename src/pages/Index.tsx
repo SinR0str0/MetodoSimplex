@@ -50,6 +50,7 @@ export default function Index() {
           <p className="text-muted-foreground">
             Resolución de problemas de optimización lineal con matrices
           </p>
+          <p>Elaborado por: Hernández Peña Angel Adrian</p>
         </div>
 
         {step === 'input' && (

@@ -42,7 +42,7 @@ export default function ResultDisplay({ result, numVariables }: ResultDisplayPro
             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-lg space-y-4">
               <h3 className="text-xl font-semibold">Valor Óptimo de la Función Objetivo:</h3>
               <p className="text-3xl font-bold text-blue-600">
-                Z* = {formatNumber(result.optimalValue)}
+                Z = {formatNumber(result.optimalValue)}
               </p>
             </div>
 
@@ -51,7 +51,7 @@ export default function ResultDisplay({ result, numVariables }: ResultDisplayPro
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                 {result.optimalSolution.slice(0, numVariables).map((value, i) => (
                   <div key={i} className="bg-white border-2 border-blue-200 p-4 rounded-lg text-center">
-                    <p className="text-sm text-muted-foreground mb-1">Variable x{i + 1}</p>
+                    <p className="text-sm text-muted-foreground mb-1">Variable x<sub>{i + 1}</sub></p>
                     <p className="text-xl font-bold text-blue-600">{formatNumber(value)}</p>
                   </div>
                 ))}

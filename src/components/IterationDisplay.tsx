@@ -26,8 +26,9 @@ export default function IterationDisplay({ iteration, isOptimal }: IterationDisp
       <CardContent className="space-y-6">
         {/* Información de Variables */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Variables Básicas (XB) */}
           <div className="space-y-2">
-            <h4 className="font-semibold text-sm">Variables Básicas (Xb):</h4>
+            <h4 className="font-semibold text-sm">Variables Básicas (X<sub>B</sub>):</h4>
             <div className="flex flex-wrap gap-2">
               {iteration.basicVariables.map((varIndex, i) => (
                 <Badge key={i} variant="outline">
@@ -36,12 +37,13 @@ export default function IterationDisplay({ iteration, isOptimal }: IterationDisp
               ))}
             </div>
           </div>
-          
+
+          {/* Variables No Básicas (XNB) */}
           <div className="space-y-2">
-            <h4 className="font-semibold text-sm">Variables No Básicas (XNB):</h4>
+            <h4 className="font-semibold text-sm">Variables No Básicas (X<sub>NB</sub>):</h4>
             <div className="flex flex-wrap gap-2">
-              {iteration.nonBasicVariables.map((varIndex) => (
-                <Badge key={varIndex} variant="secondary">
+              {iteration.nonBasicVariables.map((varIndex, i) => (
+                <Badge key={i} variant="secondary">
                   x{varIndex + 1} = 0
                 </Badge>
               ))}
@@ -51,14 +53,12 @@ export default function IterationDisplay({ iteration, isOptimal }: IterationDisp
 
         {/* Valor de Z */}
         <div className="bg-blue-50 p-4 rounded-lg">
-          <p className="text-lg font-semibold">
-            Z = {formatNumber(iteration.Z)}
-          </p>
+          <p className="text-lg font-semibold">Z = {formatNumber(iteration.Z)}</p>
         </div>
 
         {/* Matriz Base B */}
         <div className="space-y-2">
-          <h4 className="font-semibold">Matriz Base (B):</h4>
+          <h4 className="font-semibold text-sm">Matriz Base (B):</h4>
           <div className="overflow-x-auto">
             <Table>
               <TableBody>
@@ -74,14 +74,14 @@ export default function IterationDisplay({ iteration, isOptimal }: IterationDisp
               </TableBody>
             </Table>
           </div>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground mt-2">
             det(B) = {formatNumber(iteration.detB)}
           </p>
         </div>
 
-        {/* Matriz Inversa B^-1 */}
+        {/* Matriz Inversa B^-1 - Forma de Producto */}
         <div className="space-y-2">
-          <h4 className="font-semibold">Inversa de B (B⁻¹) - Forma de Producto:</h4>
+          <h4 className="font-semibold text-sm">Inversa B<sup>-1</sup>:</h4>
           <div className="overflow-x-auto">
             <Table>
               <TableBody>
@@ -101,8 +101,8 @@ export default function IterationDisplay({ iteration, isOptimal }: IterationDisp
 
         {/* Coeficientes CB */}
         <div className="space-y-2">
-          <h4 className="font-semibold">Coeficientes de Variables Básicas (CB):</h4>
-          <div className="flex gap-2">
+          <h4 className="font-semibold text-sm">Coeficientes de Variables Básicas (C<sub>B</sub>):</h4>
+          <div className="flex flex-wrap gap-2">
             {iteration.CB.map((val, i) => (
               <Badge key={i} variant="outline">
                 {formatNumber(val)}
@@ -113,22 +113,26 @@ export default function IterationDisplay({ iteration, isOptimal }: IterationDisp
 
         {/* Valores Zj - Cj */}
         <div className="space-y-2">
-          <h4 className="font-semibold">Valores Zj - Cj:</h4>
+          <h4 className="font-semibold text-sm">Valores Z<sub>j</sub> - C<sub>j</sub>:</h4>
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  {iteration.ZjCj.map((_, i) => (
-                    <TableHead key={i} className="text-center">x{i + 1}</TableHead>
+                  {Array.from({ length: iteration.ZjCj.length }, (_, i) => (
+                    <TableHead key={i} className="text-center">
+                      {i + 1}
+                    </TableHead>
                   ))}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 <TableRow>
                   {iteration.ZjCj.map((val, i) => (
-                    <TableCell 
-                      key={i} 
-                      className={`text-center font-mono ${val < -1e-6 ? 'bg-red-100 font-bold' : ''}`}
+                    <TableCell
+                      key={i}
+                      className={`text-center font-mono ${
+                        val < -1e-6 ? 'bg-red-100 font-bold' : ''
+                      }`}
                     >
                       {formatNumber(val)}
                     </TableCell>
@@ -143,9 +147,9 @@ export default function IterationDisplay({ iteration, isOptimal }: IterationDisp
         {iteration.enteringVariable !== null && (
           <div className="bg-green-50 p-4 rounded-lg">
             <p className="font-semibold">
-              Variable de Entrada: x{iteration.enteringVariable + 1}
-              <span className="text-sm font-normal text-muted-foreground ml-2">
-                (Zj - Cj más negativo = {formatNumber(iteration.ZjCj[iteration.enteringVariable])})
+              Variable de Entrada: x<sub>{iteration.enteringVariable + 1}</sub>
+              <span className="text-sm text-muted-foreground ml-2">
+                (Z<sub>j</sub> - C<sub>j</sub> más negativo = {formatNumber(iteration.ZjCj[iteration.enteringVariable])})
               </span>
             </p>
           </div>
@@ -155,9 +159,8 @@ export default function IterationDisplay({ iteration, isOptimal }: IterationDisp
         {iteration.leavingVariable !== null && (
           <div className="bg-orange-50 p-4 rounded-lg">
             <p className="font-semibold">
-              Variable de Salida: x{iteration.leavingVariable + 1}
-              <span className="text-sm font-normal text-muted-foreground ml-2">
-                (Razón mínima)
+              Variable de Salida: x<sub>{iteration.leavingVariable + 1}</sub>
+              <span className="text-sm text-muted-foreground ml-2">
               </span>
             </p>
           </div>
