@@ -4,13 +4,14 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [
-    react(), // suficiente para la mayoría de los proyectos React + TS
+    react(),
   ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
   },
+  base: '/MetodoSimplex/',
   server: {
     // Solo incluye esto si estás en WSL, Docker o tienes problemas con los hot reloads
     // watch: { usePolling: true, interval: 800 },
