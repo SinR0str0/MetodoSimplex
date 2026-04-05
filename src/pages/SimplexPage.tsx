@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import InputForm from '@/components/InputForm';
 import SimplexTable from '@/components/SimplexTable';
 import IterationDisplay from '@/components/IterationDisplay';
@@ -6,6 +7,7 @@ import ResultDisplay from '@/components/ResultDisplay';
 import { Button } from '@/components/ui/button';
 import { SimplexInput, SimplexResult, ProblemType, solveSimplex } from '@/utils/simplexSolver';
 import { ArrowLeft } from 'lucide-react';
+import { usePageMeta } from '@/hooks/usePageMeta';
 
 type Step = 'input' | 'table' | 'result';
 
@@ -39,11 +41,17 @@ export default function Index() {
   const handleBackToTable = () => {
     setStep('table');
   };
-
+  usePageMeta('Método Simplex Revisado');
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 py-8 px-4">
       <div className="container mx-auto space-y-8">
         <div className="text-center space-y-2">
+          <Link to="/">
+            <Button variant="outline">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+                Volver al Inicio
+            </Button>
+          </Link>
           <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
             Método Simplex Revisado
           </h1>

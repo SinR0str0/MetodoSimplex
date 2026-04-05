@@ -32,15 +32,15 @@ export default function Landing() {
 
           <Card className="hover:shadow-lg transition-shadow">
             <CardHeader>
-              <CardTitle className="text-2xl">Método de Floyd-Warshall</CardTitle>
+              <CardTitle className="text-2xl">Algoritmo de Floyd</CardTitle>
               <CardDescription>
                 Calcula los caminos más cortos entre todos los pares de vértices en un grafo.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Link to="/floyd">
-                <Button className="w-full" disabled>
-                  Próximamente
+                <Button className="w-full">
+                  Acceder al Algoritmo de Floyd
                 </Button>
               </Link>
             </CardContent>
