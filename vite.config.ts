@@ -11,7 +11,7 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
-  base: '/MetodoSimplex/',
+  base: '/',
   server: {
     // Solo incluye esto si estás en WSL, Docker o tienes problemas con los hot reloads
     // watch: { usePolling: true, interval: 800 },
