@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { ArrowLeft } from 'lucide-react';
-import { runFloydWarshallSteps, type FloydStep } from '@/utils/floyd';
+import { runFloydWarshallSteps, reconstructPath, type FloydStep } from '@/utils/floyd';
 import { usePageMeta } from '@/hooks/usePageMeta';
 
 interface Relation {
@@ -27,6 +27,13 @@ export default function FloydPage() {
   const [currentStepIdx, setCurrentStepIdx] = useState<number>(0);
   const [showResults, setShowResults] = useState(false);
   const fromVertexRef = useRef<HTMLSelectElement>(null);
+  const [pathFrom, setPathFrom] = useState<string>('');
+  const [pathTo, setPathTo] = useState<string>('');
+  const [pathResult, setPathResult] = useState<{ 
+    path: string; 
+    totalCost: number | null; 
+    error: string | null; 
+  } | null>(null);
 
   // Validar entrada numérica
   const isValidInput = (value: number): boolean => {
@@ -121,20 +128,28 @@ export default function FloydPage() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // 🔧 Escalar canvas para pantallas de alta densidad
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
     const labels = getVertexLabels();
     if (labels.length === 0) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0, 0, rect.width, rect.height);
       ctx.fillStyle = '#6b7280';
       ctx.font = '14px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('Ingresa el número de vértices para comenzar', canvas.width / 2, canvas.height / 2);
+      ctx.fillText('Ingresa el número de vértices para comenzar', rect.width / 2, rect.height / 2);
       return;
     }
 
-    // Configurar canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
+    // Configurar canvas (usar rect.width/height para coordenadas lógicas)
+    ctx.clearRect(0, 0, rect.width, rect.height);
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
     const radius = Math.min(centerX, centerY) - 60;
     const nodeRadius = 24;
 
@@ -152,7 +167,6 @@ export default function FloydPage() {
 
       if (rel.from === rel.to) {
         drawLoop(ctx, from.x, from.y, nodeRadius);
-        // Texto del costo en bucle
         ctx.fillStyle = '#1e293b';
         ctx.font = 'bold 12px sans-serif';
         ctx.textAlign = 'center';
@@ -160,11 +174,10 @@ export default function FloydPage() {
       } else {
         drawArrow(ctx, from.x, from.y, to.x, to.y, nodeRadius);
         
-        // Texto del costo en arista (punto medio con desplazamiento)
         const midX = (from.x + to.x) / 2;
         const midY = (from.y + to.y) / 2;
         ctx.fillStyle = '#ffffff';
-        ctx.fillRect(midX - 10, midY - 8, 20, 12); // Fondo blanco para legibilidad
+        ctx.fillRect(midX - 10, midY - 8, 20, 12);
         ctx.fillStyle = '#1e293b';
         ctx.font = 'bold 12px sans-serif';
         ctx.textAlign = 'center';
@@ -178,7 +191,6 @@ export default function FloydPage() {
       const pos = positions.get(label);
       if (!pos) return;
 
-      // Círculo del nodo
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, nodeRadius, 0, 2 * Math.PI);
       ctx.fillStyle = '#3b82f6';
@@ -187,7 +199,6 @@ export default function FloydPage() {
       ctx.lineWidth = 3;
       ctx.stroke();
 
-      // Texto del nodo
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 14px sans-serif';
       ctx.textAlign = 'center';
@@ -304,12 +315,70 @@ export default function FloydPage() {
     setSteps([]);
     setCurrentStepIdx(0);
     setShowResults(false);
+    
+    // 🔹 Limpia los nuevos estados de ruta
+    setPathFrom('');
+    setPathTo('');
+    setPathResult(null);
+    
     // Limpiar canvas
     const canvas = canvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext('2d');
       ctx?.clearRect(0, 0, canvas.width, canvas.height);
     }
+  };
+
+  const handleFindPath = () => {
+    if (!showResults || steps.length === 0) return;
+    
+    const labels = getVertexLabels();
+    const fromIdx = labels.indexOf(pathFrom);
+    const toIdx = labels.indexOf(pathTo);
+    
+    // Validaciones básicas
+    if (fromIdx === -1 || toIdx === -1) {
+      setPathResult({ path: '', totalCost: null, error: 'Selecciona vértices válidos' });
+      return;
+    }
+    
+    if (fromIdx === toIdx) {
+      setPathResult({ 
+        path: `${pathFrom} -> ${pathTo}`, 
+        totalCost: 0, 
+        error: null 
+      });
+      return;
+    }
+    
+    // Obtener matrices del paso actual (o el final si prefieres)
+    const currentStep = steps[steps.length - 1]; // O steps[steps.length - 1] para el resultado final
+    const { D, Z } = currentStep;
+    
+    // Verificar si existe camino
+    if (D[fromIdx][toIdx] === Infinity) {
+      setPathResult({ path: '', totalCost: null, error: 'No existe camino entre estos vértices' });
+      return;
+    }
+    
+    // Reconstruir ruta
+    const pathIndices = reconstructPath(Z, fromIdx, toIdx);
+    
+    if (!pathIndices) {
+      setPathResult({ path: '', totalCost: null, error: 'No se pudo reconstruir la ruta' });
+      return;
+    }
+    
+    // Formatear salida
+    const pathLabels = pathIndices.map(i => labels[i]);
+    const pathString = pathLabels.join(' -> ');
+    const totalCost = D[fromIdx][toIdx];
+    
+    setPathResult({
+      path: pathString,
+      totalCost: totalCost,
+      error: null
+    });
   };
 
   const handleCostKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -471,9 +540,7 @@ export default function FloydPage() {
             <div className="flex justify-center">
               <canvas
                 ref={canvasRef}
-                width={640}
-                height={440}
-                className="w-full max-w-3xl rounded-3xl border border-slate-200 bg-slate-50"
+                className="w-full max-w-3xl h-[400px] rounded-3xl border border-slate-200 bg-slate-50"
               />
             </div>
           </CardContent>
@@ -498,51 +565,61 @@ export default function FloydPage() {
         </div>
 
         {showResults && steps.length > 0 && (
-      <div className="space-y-6 mt-8">
-        {/* Selector de iteración */}
-        <div className="bg-white rounded-xl shadow p-4 flex flex-col sm:flex-row items-center gap-4">
-          {/* ... tu código del slider ... */}
-        </div>
+          <div className="space-y-6 mt-8">
+            <Card>
+              <CardHeader className="items-center gap-4 md:flex">
+                <div className="space-y-1">
+                  <CardTitle>Progreso de iteración</CardTitle>
+                  <CardDescription>
+                    Revisa el estado actual del algoritmo y los cambios para el paso seleccionado.
+                  </CardDescription>
+                </div>
 
-        <div className="flex items-center gap-4 text-sm text-gray-600 mb-2">
-          <span className="inline-flex items-center gap-1">
-            <span className="w-4 h-4 bg-green-100 border border-green-300 rounded"></span>
-            Modificado en k={steps[currentStepIdx].k}
-          </span>
-          {steps[currentStepIdx].cambios.length > 0 && (
-            <span className="text-gray-400">
-              • {steps[currentStepIdx].cambios.length} cambio(s)
-            </span>
-          )}
-        </div>
-        
-        {/* Selector de iteración */}
-        <div className="bg-white rounded-xl shadow p-4 flex flex-col sm:flex-row items-center gap-4">
-          <label className="font-medium text-gray-700">Iteración (k):</label>
-          <input
-            type="range"
-            min={0}
-            max={steps.length - 1}
-            value={currentStepIdx}
-            onChange={(e) => setCurrentStepIdx(Number(e.target.value))}
-            className="w-full max-w-xs accent-blue-600"
-          />
-          <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-mono font-bold">
-            k = {steps[currentStepIdx].k}
-          </span>
-          <span className="text-sm text-gray-500">
-            {steps.length - 1} iteraciones disponibles
-          </span>
-        </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={handlePrevStep} disabled={currentStepIdx === 0}>
+                    Anterior
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleNextStep} disabled={currentStepIdx === stepCount}>
+                    Siguiente
+                  </Button>
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-700">
+                    Paso {currentStepIdx} / {stepCount}
+                  </span>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-3xl bg-slate-50 p-4">
+                    <p className="text-sm font-semibold text-slate-700">Iteración actual</p>
+                    <p className="mt-2 text-lg font-bold text-slate-900">k = {steps[currentStepIdx].k}</p>
+                  </div>
+                  <div className="rounded-3xl bg-slate-50 p-4">
+                    <p className="text-sm font-semibold text-slate-700">Cambios registrados</p>
+                    <p className="mt-2 text-lg font-bold text-slate-900">{steps[currentStepIdx].cambios.length}</p>
+                  </div>
+                </div>
 
-        {steps[currentStepIdx].tieneCicloNegativo && (
+                <div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={stepCount}
+                    value={currentStepIdx}
+                    onChange={(e) => setCurrentStepIdx(Number(e.target.value))}
+                    className="w-full accent-blue-600"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            {steps[currentStepIdx].tieneCicloNegativo && (
           <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg mb-4">
             <div className="flex items-start">
               <span className="text-2xl mr-3">⚠️</span>
               <div>
                 <h3 className="text-sm font-bold text-red-800">Ciclo Negativo Detectado</h3>
                 <p className="mt-1 text-sm text-red-700">
-                  Los vértices {steps[currentStepIdx].verticesCicloNegativo.join(', ')} tienen camino negativo a sí mismos. 
+                  El/Los vértices {steps[currentStepIdx].verticesCicloNegativo.join(', ')} tienen camino negativo a sí mismos. 
                   Los costos mínimos no son estables.
                 </p>
               </div>
@@ -550,81 +627,155 @@ export default function FloydPage() {
           </div>
         )}
 
-        {/* Matriz de Costos (C) */}
-        <div className="bg-white rounded-xl shadow p-6">
-          <h2 className="text-lg font-bold text-gray-800 mb-4">Matriz de Costos (D)</h2>
-          <div className="overflow-x-auto">
-            <table className="min-w-full border-collapse border border-gray-200 text-sm">
-              <thead>
-                <tr className="bg-gray-50">
-                  <th className="border p-2 font-semibold">V\V</th>
-                  {Array.from({ length: vertices }, (_, i) => (
-                    <th key={i} className="border p-2 font-semibold">{i + 1}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-               {steps[currentStepIdx].D.map((row, i) => (
-                <tr key={i} className="hover:bg-gray-50">
-                  <td className="border p-2 font-bold bg-gray-50">{i + 1}</td>
-                  {row.map((cell, j) => {
-                    const fueModificado = steps[currentStepIdx].cambios?.some(
-                      c => c.i === i + 1 && c.j === j + 1
-                    );
-                    return (
-                      <td 
-                        key={j} 
-                        className={`border p-2 text-center ${fueModificado ? 'bg-green-100 font-bold text-green-800' : ''}`}
-                      >
-                        {cell === Infinity ? '∞' : cell}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+            <div className="grid gap-6 xl:grid-cols-2">
+              <Card>
+                <CardHeader className="pb-0">
+                  <CardTitle>Matriz de costos (D)</CardTitle>
+                </CardHeader>
+                <CardContent className="overflow-x-auto">
+                  <table className="min-w-full border-collapse border border-slate-200 text-sm">
+                    <thead>
+                      <tr className="bg-slate-50">
+                        <th className="border px-3 py-2 text-left font-semibold">V\V</th>
+                        {Array.from({ length: vertices }, (_, i) => (
+                          <th key={i} className="border px-3 py-2 text-center font-semibold">{i + 1}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {steps[currentStepIdx].D.map((row, i) => (
+                        <tr key={i} className="hover:bg-slate-50">
+                          <td className="border px-3 py-2 font-semibold bg-slate-100">{i + 1}</td>
+                          {row.map((cell, j) => {
+                            const fueModificado = steps[currentStepIdx].cambios?.some(
+                              (c) => c.i === i + 1 && c.j === j + 1
+                            );
+                            return (
+                              <td
+                                key={j}
+                                className={`border px-3 py-2 text-center ${
+                                  fueModificado ? 'bg-emerald-100 font-semibold text-emerald-900' : ''
+                                }`}
+                              >
+                                {cell === Infinity ? '∞' : cell}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
 
-        {/* Matriz de Predecesores (Z) */}
-        <div className="bg-white rounded-xl shadow p-6">
-          <h2 className="text-lg font-bold text-gray-800 mb-4">Matriz de Predecesores (Z)</h2>
-          <div className="overflow-x-auto">
-            <table className="min-w-full border-collapse border border-gray-200 text-sm">
-              <thead>
-                <tr className="bg-gray-50">
-                  <th className="border p-2 font-semibold">V\V</th>
-                  {Array.from({ length: vertices }, (_, i) => (
-                    <th key={i} className="border p-2 font-semibold">{i + 1}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {steps[currentStepIdx].Z.map((row, i) => (
-                  <tr key={i} className="hover:bg-gray-50">
-                    <td className="border p-2 font-bold bg-gray-50">{i + 1}</td>
-                    {row.map((cell, j) => {
-                      const fueModificado = steps[currentStepIdx].cambios?.some(
-                        c => c.i === i + 1 && c.j === j + 1
-                      );
-                      return (
-                        <td 
-                          key={j} 
-                          className={`border p-2 text-center ${fueModificado ? 'bg-green-100 font-bold text-green-800' : ''}`}
-                        >
-                          {cell === null ? '-' : cell}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+              <Card>
+                <CardHeader className="pb-0">
+                  <CardTitle>Matriz de predecesores (Z)</CardTitle>
+                </CardHeader>
+                <CardContent className="overflow-x-auto">
+                  <table className="min-w-full border-collapse border border-slate-200 text-sm">
+                    <thead>
+                      <tr className="bg-slate-50">
+                        <th className="border px-3 py-2 text-left font-semibold">V\V</th>
+                        {Array.from({ length: vertices }, (_, i) => (
+                          <th key={i} className="border px-3 py-2 text-center font-semibold">{i + 1}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {steps[currentStepIdx].Z.map((row, i) => (
+                        <tr key={i} className="hover:bg-slate-50">
+                          <td className="border px-3 py-2 font-semibold bg-slate-100">{i + 1}</td>
+                          {row.map((cell, j) => {
+                            const fueModificado = steps[currentStepIdx].cambios?.some(
+                              (c) => c.i === i + 1 && c.j === j + 1
+                            );
+                            return (
+                              <td
+                                key={j}
+                                className={`border px-3 py-2 text-center ${
+                                  fueModificado ? 'bg-emerald-100 font-semibold text-emerald-900' : ''
+                                }`}
+                              >
+                                {cell === null ? '-' : cell}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
+            </div>
+            {/* Consulta de ruta específica */}
+            {!steps[steps.length - 1].tieneCicloNegativo && (
+            <Card className="mt-8 border-blue-200 bg-blue-50/50">
+              <CardHeader>
+                <CardTitle className="text-blue-900">Consultar ruta específica</CardTitle>
+                <CardDescription>
+                  Encuentra el camino más corto entre dos vértices.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+                  <div className="flex-1">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Desde</label>
+                    <select
+                      value={pathFrom}
+                      onChange={(e) => setPathFrom(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                    >
+                      <option value="">Seleccionar vértice</option>
+                      {getVertexLabels().map((v) => (
+                        <option key={v} value={v}>{v}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div className="flex-1">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Hacia</label>
+                    <select
+                      value={pathTo}
+                      onChange={(e) => setPathTo(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                    >
+                      <option value="">Seleccionar vértice</option>
+                      {getVertexLabels().map((v) => (
+                        <option key={v} value={v}>{v}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <Button onClick={handleFindPath} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700">
+                    Encontrar ruta
+                  </Button>
+                </div>
+                
+                {/* Resultado */}
+                {pathResult && (
+                  <div className={`rounded-xl p-4 ${pathResult.error ? 'bg-red-50 border border-red-200' : 'bg-white border border-slate-200'}`}>
+                    {pathResult.error ? (
+                      <p className="text-sm text-red-700 font-medium">⚠️ {pathResult.error}</p>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-sm text-slate-600">Camino más corto:</p>
+                        <p className="text-lg font-mono font-bold text-slate-900 break-all">
+                          {pathResult.path}
+                        </p>
+                        <p className="text-sm text-slate-600">
+                          Peso total: <span className="font-bold text-blue-700">{pathResult.totalCost}</span>
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            )}
           </div>
-        </div>
-      </div> 
-    )}
+        )}
+      </div>
     </div>
   );
 }

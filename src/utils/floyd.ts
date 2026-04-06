@@ -96,3 +96,30 @@ export function runFloydWarshallSteps(n: number, edges: Edge[]): FloydStep[] {
 
   return steps;
 }
+
+export function reconstructPath(Z: (number | null)[][], start: number, end: number): number[] | null {
+  // Si no hay predecesor registrado, no hay camino
+  if (Z[start][end] === null) return null;
+  
+  const path: number[] = [];
+  let current = end;
+  
+  // Seguridad contra bucles infinitos en la matriz Z
+  const visited = new Set<number>();
+  
+  while (current !== start) {
+    if (visited.has(current)) return null; // Ciclo detectado en Z
+    visited.add(current);
+    
+    path.unshift(current); // Agregar al inicio del camino
+    
+    const predecessor = Z[start][current];
+    if (predecessor === null) return null;
+    
+    // Z almacena valores 1-based, convertimos a 0-based
+    current = predecessor - 1;
+  }
+  
+  path.unshift(start);
+  return path;
+}
