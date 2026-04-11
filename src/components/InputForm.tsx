@@ -55,7 +55,6 @@ export default function InputForm({ onSubmit }: InputFormProps) {
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Número de Variables */}
             <div className="space-y-2">
               <Label htmlFor="numVariables">Número de Variables</Label>
               <Input
@@ -69,7 +68,6 @@ export default function InputForm({ onSubmit }: InputFormProps) {
               />
             </div>
 
-            {/* Número de Restricciones */}
             <div className="space-y-2">
               <Label htmlFor="numConstraints">Número de Restricciones</Label>
               <Input
@@ -84,7 +82,6 @@ export default function InputForm({ onSubmit }: InputFormProps) {
             </div>
           </div>
 
-          {/* Tipo de Problema */}
           <div className="space-y-2">
             <Label htmlFor="problemType">Tipo de Problema</Label>
             <Select value={problemType} onValueChange={(value) => setProblemType(value as ProblemType)}>
@@ -98,7 +95,6 @@ export default function InputForm({ onSubmit }: InputFormProps) {
             </Select>
           </div>
 
-          {/* Botón de Envío */}
           <Button type="submit" className="w-full">
             Generar Tabla de Entrada
           </Button>

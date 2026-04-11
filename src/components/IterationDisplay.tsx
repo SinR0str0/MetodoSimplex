@@ -24,9 +24,7 @@ export default function IterationDisplay({ iteration, isOptimal }: IterationDisp
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Información de Variables */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Variables Básicas (XB) */}
           <div className="space-y-2">
             <h4 className="font-semibold text-sm">Variables Básicas (X<sub>B</sub>):</h4>
             <div className="flex flex-wrap gap-2">
@@ -38,7 +36,6 @@ export default function IterationDisplay({ iteration, isOptimal }: IterationDisp
             </div>
           </div>
 
-          {/* Variables No Básicas (XNB) */}
           <div className="space-y-2">
             <h4 className="font-semibold text-sm">Variables No Básicas (X<sub>NB</sub>):</h4>
             <div className="flex flex-wrap gap-2">
@@ -51,12 +48,10 @@ export default function IterationDisplay({ iteration, isOptimal }: IterationDisp
           </div>
         </div>
 
-        {/* Valor de Z */}
         <div className="bg-blue-50 p-4 rounded-lg">
           <p className="text-lg font-semibold">Z = {formatNumber(iteration.Z)}</p>
         </div>
 
-        {/* Matriz Base B */}
         <div className="space-y-2">
           <h4 className="font-semibold text-sm">Matriz Base (B):</h4>
           <div className="overflow-x-auto">

@@ -123,3 +123,35 @@ export function reconstructPath(Z: (number | null)[][], start: number, end: numb
   path.unshift(start);
   return path;
 }
+
+export function findTerminalNodesFromMatrix(D: number[][]): { 
+  initial: number[]; 
+  final: number[]; 
+  isolated: number[]; // ← NUEVO
+} {
+  const n = D.length;
+  const initial: number[] = [];
+  const final: number[] = [];
+  const isolated: number[] = [];
+
+  for (let i = 0; i < n; i++) {
+    let columnHasEdges = false; // ¿Alguien llega a i?
+    let rowHasEdges = false;    // ¿i sale a alguien?
+
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue; // Ignorar diagonal
+      if (D[j][i] !== Infinity) columnHasEdges = true;
+      if (D[i][j] !== Infinity) rowHasEdges = true;
+    }
+
+    if (!columnHasEdges && rowHasEdges) {
+      initial.push(i + 1);
+    } else if (columnHasEdges && !rowHasEdges) {
+      final.push(i + 1);
+    } else if (!columnHasEdges && !rowHasEdges) {
+      isolated.push(i + 1); // ← NUEVO: Sin entradas ni salidas
+    }
+  }
+
+  return { initial, final, isolated };
+}

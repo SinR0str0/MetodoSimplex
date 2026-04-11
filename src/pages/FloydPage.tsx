@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { ArrowLeft } from 'lucide-react';
-import { runFloydWarshallSteps, reconstructPath, type FloydStep } from '@/utils/floyd';
+import { runFloydWarshallSteps, reconstructPath, findTerminalNodesFromMatrix, findAislatedNodesFromMatrix, type FloydStep } from '@/utils/floyd';
 import { usePageMeta } from '@/hooks/usePageMeta';
 
 interface Relation {
@@ -34,19 +34,20 @@ export default function FloydPage() {
     totalCost: number | null; 
     error: string | null; 
   } | null>(null);
+  const [initialNodes, setInitialNodes] = useState<number[]>([]);
+  const [finalNodes, setFinalNodes] = useState<number[]>([]);
+  const [isolatedNodes, setIsolatedNodes] = useState<number[]>([]);
 
-  // Validar entrada numérica
+
   const isValidInput = (value: number): boolean => {
     return Number.isInteger(value) && value > 0 && value < 11;
   };
 
-  // Obtener etiquetas de vértices
   const getVertexLabels = useCallback((): string[] => {
     if (vertices === 0) return [];
     return Array.from({ length: vertices }, (_, i) => `${i + 1}`);
   }, [vertices]);
 
-  // Calcular posición de nodo en circunferencia
   const getNodePosition = (index: number, total: number, centerX: number, centerY: number, radius: number) => {
     const angle = (index * 2 * Math.PI) / total - Math.PI / 2;
     return {
@@ -55,7 +56,6 @@ export default function FloydPage() {
     };
   };
 
-  // Dibujar flecha dirigida
   const drawArrow = (
     ctx: CanvasRenderingContext2D,
     fromX: number,
@@ -70,11 +70,9 @@ export default function FloydPage() {
     const dist = Math.sqrt(dx * dx + dy * dy) || 1;
     const angle = Math.atan2(dy, dx);
 
-    // Punto final ajustado al borde del nodo destino
     const endX = toX - (dx / dist) * nodeRadius;
     const endY = toY - (dy / dist) * nodeRadius;
 
-    // Línea
     ctx.beginPath();
     ctx.moveTo(fromX, fromY);
     ctx.lineTo(endX, endY);
@@ -82,7 +80,6 @@ export default function FloydPage() {
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Cabeza de flecha
     ctx.beginPath();
     ctx.moveTo(endX, endY);
     ctx.lineTo(
@@ -191,21 +188,41 @@ export default function FloydPage() {
       const pos = positions.get(label);
       if (!pos) return;
 
+      const nodeNum = Number(label);
+      let fillColor = '#3b82f6';   // Azul por defecto
+      let strokeColor = '#2563eb';
+      let lineWidth = 3;
+
+      // 🔹 Asignar color según clasificación
+      if (initialNodes.includes(nodeNum)) {
+        fillColor = '#10b981'; // 🟢 Verde (solo sale)
+        strokeColor = '#059669';
+      } else if (finalNodes.includes(nodeNum)) {
+        fillColor = '#ef4444'; // 🔴 Rojo (solo llega)
+        strokeColor = '#b91c1c';
+      } else if (isolatedNodes.includes(nodeNum)) {
+        fillColor = '#9ca3af'; // ⚪ Gris (sin conexiones)
+        strokeColor = '#4b5563';
+        lineWidth = 2;
+      }
+
+      // Dibujar círculo
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, nodeRadius, 0, 2 * Math.PI);
-      ctx.fillStyle = '#3b82f6';
+      ctx.fillStyle = fillColor;
       ctx.fill();
-      ctx.strokeStyle = '#2563eb';
-      ctx.lineWidth = 3;
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = lineWidth;
       ctx.stroke();
 
+      // Dibujar etiqueta
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 14px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(label, pos.x, pos.y);
     });
-  }, [vertices, relations, getVertexLabels]);
+  }, [vertices, relations, getVertexLabels, initialNodes, finalNodes, isolatedNodes]);
 
   // Re-renderizar cuando cambien las relaciones o vértices
   useEffect(() => {
@@ -293,13 +310,22 @@ export default function FloydPage() {
   };
 
   // Manejar cálculo
-  const handleCalculate = () => {
-    if (!canCalculate()) return;
-    const allSteps = runFloydWarshallSteps(vertices, relations);
-    setSteps(allSteps);
-    setCurrentStepIdx(0); // Inicia en k=0
-    setShowResults(true);
-  };
+const handleCalculate = () => {
+  if (!canCalculate()) return;
+  
+  const allSteps = runFloydWarshallSteps(vertices, relations);
+  setSteps(allSteps);
+  setCurrentStepIdx(0);
+  setShowResults(true);
+
+
+  const { initial, final, isolated } = findTerminalNodesFromMatrix(allSteps[0].D);
+  setInitialNodes(initial);
+  setFinalNodes(final);
+  setIsolatedNodes(isolated);
+  
+  renderGraph();
+};
 
   const handleClearAll = () => {
     if (relations.length > 0 || showResults) {
@@ -315,6 +341,9 @@ export default function FloydPage() {
     setSteps([]);
     setCurrentStepIdx(0);
     setShowResults(false);
+    setInitialNodes([]);
+    setFinalNodes([]);
+    setIsolatedNodes([]);
     
     // 🔹 Limpia los nuevos estados de ruta
     setPathFrom('');
@@ -751,6 +780,55 @@ export default function FloydPage() {
                     Encontrar ruta
                   </Button>
                 </div>
+
+                {/* 🔹 Alerta de nodos iniciales/finales */}
+
+  {(initialNodes.length > 0 || finalNodes.length > 0 || isolatedNodes.length > 0) && (
+  <Card className="mt-4 border-amber-200 bg-amber-50">
+    <CardContent className="py-4">
+      <div className="space-y-3">
+        {initialNodes.length > 0 && (
+          <div className="flex items-start gap-3">
+            <span className="text-emerald-600 text-lg">🟢</span>
+            <div>
+              <h4 className="text-sm font-semibold text-amber-900">Nodos iniciales</h4>
+              <p className="text-sm text-amber-800 mt-1">
+                Vértices: <span className="font-mono font-bold">{initialNodes.join(', ')}</span>
+              </p>
+              <p className="text-xs text-amber-700 mt-1">No llegan rutas desde otros vértices.</p>
+            </div>
+          </div>
+        )}
+
+        {finalNodes.length > 0 && (
+          <div className="flex items-start gap-3 pt-3 border-t border-amber-200">
+            <span className="text-red-600 text-lg">🔴</span>
+            <div>
+              <h4 className="text-sm font-semibold text-amber-900">Nodos terminales</h4>
+              <p className="text-sm text-amber-800 mt-1">
+                Vértices: <span className="font-mono font-bold">{finalNodes.join(', ')}</span>
+              </p>
+              <p className="text-xs text-amber-700 mt-1">No salen rutas hacia otros vértices.</p>
+            </div>
+          </div>
+        )}
+
+        {isolatedNodes.length > 0 && (
+          <div className="flex items-start gap-3 pt-3 border-t border-amber-200">
+            <span className="text-gray-500 text-lg">⚪</span>
+            <div>
+              <h4 className="text-sm font-semibold text-amber-900">Nodos aislados</h4>
+              <p className="text-sm text-amber-800 mt-1">
+                Vértices: <span className="font-mono font-bold">{isolatedNodes.join(', ')}</span>
+              </p>
+              <p className="text-xs text-amber-700 mt-1">No tienen conexiones de entrada ni salida.</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </CardContent>
+  </Card>
+)}
                 
                 {/* Resultado */}
                 {pathResult && (
