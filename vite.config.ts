@@ -14,11 +14,5 @@ export default defineConfig({
   base: '/',
   server: {
     // 🚨 AGREGA ESTO:
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      }
-    }
   },
 });
