@@ -1,0 +1,9 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "functions": {
+    "api/solve_mpl.py": {
+      "runtime": "@vercel/python@4.3.1"
+    }
+  }
+}
