@@ -6,6 +6,7 @@ import Landing from './pages/Landing.tsx';
 import SimplexPage from './pages/SimplexPage.tsx';
 import FloydPage from './pages/FloydPage.tsx';
 import NotFound from './pages/NotFound.tsx';
+import RamificacionPage from './pages/RamificacionPage.tsx';
 
 const queryClient = new QueryClient();
 
@@ -17,6 +18,7 @@ const App = () => (
         <Route path="/" element={<Landing />} />
         <Route path="/simplex" element={<SimplexPage />} />
         <Route path="/floyd" element={<FloydPage />} />
+        <Route path="/ramificacion" element={<RamificacionPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </TooltipProvider>

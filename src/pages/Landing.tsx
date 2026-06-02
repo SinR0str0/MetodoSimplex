@@ -45,6 +45,22 @@ export default function Landing() {
               </Link>
             </CardContent>
           </Card>
+
+          <Card className="hover:shadow-lg transition-shadow">
+            <CardHeader>
+              <CardTitle className="text-2xl">Método de Ramificación y Acotamiento</CardTitle>
+              <CardDescription>
+                Resuelve problemas de optimización entera usando el método de ramificación y acotamiento.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Link to="/ramificacion">
+                <Button className="w-full">
+                  Acceder al Método de Ramificación y Acotamiento
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>
