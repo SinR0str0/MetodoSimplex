@@ -21,7 +21,13 @@ def handler(request):
         b_ub = body.get("b_ub")
         A_eq = body.get("A_eq")
         b_eq = body.get("b_eq")
-        bounds = body.get("bounds")
+        bounds_data = body.get("bounds")
+        if bounds_data:
+            lb = [b[0] if b[0] is not None else None for b in bounds_data]
+            ub = [b[1] if b[1] is not None else None for b in bounds_data]
+            bounds = list(zip(lb, ub))
+        else:
+            bounds = None
 
         # 4. Ejecutar el solver HiGHS (Simplex o Interior Point)
         res = linprog(

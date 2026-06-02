@@ -13,7 +13,12 @@ export default defineConfig({
   },
   base: '/',
   server: {
-    // Solo incluye esto si estás en WSL, Docker o tienes problemas con los hot reloads
-    // watch: { usePolling: true, interval: 800 },
+    // 🚨 AGREGA ESTO:
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      }
+    }
   },
 });

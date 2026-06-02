@@ -1,20 +1,24 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import RamificacionInputForm from '@/components/RamificacionInputForm';
 import RamificacionTable from '@/components/RamificacionTable';
-import RamificacionResultDisplay from '@/components/RamificacionResultDisplay';
+import BranchingTreeDisplay from '@/components/BranchingTreeDisplay';
 import { Button } from '@/components/ui/button';
-import { ProblemType, MilpInput } from '@/utils/milpTypes';
+import { ProblemType, MilpInput, VariableType } from '@/utils/milpTypes';
+import { getModelType } from '@/utils/modelClassifier';
 import { ArrowLeft } from 'lucide-react';
 import { usePageMeta } from '@/hooks/usePageMeta';
 
 type Step = 'input' | 'table' | 'result';
 
-interface MilpResult {
-  success: boolean;
-  message: string;
-  optimal_value: number | null;
-  optimal_variables: number[] | null;
+interface TreeNodeData {
+  id: string;
+  level: number;
+  bounds: [number, number | null][];
+  solution: { z: number; x: number[] } | null;
+  status: 'pending' | 'solving' | 'feasible' | 'infeasible' | 'pruned' | 'branched';
+  branchingVar: number | null;
+  children: TreeNodeData[];
 }
 
 export default function RamificacionPage() {
@@ -22,8 +26,19 @@ export default function RamificacionPage() {
   const [numVariables, setNumVariables] = useState<number>(0);
   const [numConstraints, setNumConstraints] = useState<number>(0);
   const [problemType, setProblemType] = useState<ProblemType>('max');
-  const [result, setResult] = useState<MilpResult | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [problemVariableTypes, setProblemVariableTypes] = useState<VariableType[]>([]);
+  
+  const [tree, setTree] = useState<TreeNodeData | null>(null);
+  const [zCota, setZCota] = useState<number>(-Infinity); // Solo para la UI
+  const [isSolving, setIsSolving] = useState(false);
+
+  // 🚨 REFS PARA LA LÓGICA (no se pierden en la recursión)
+  const zCotaRef = useRef<number>(-Infinity);
+  const originalC = useRef<number[]>([]);
+  const originalA_ub = useRef<number[][]>([]);
+  const originalB_ub = useRef<number[]>([]);
+  const originalA_eq = useRef<number[][]>([]);
+  const originalB_eq = useRef<number[]>([]);
 
   const handleInputSubmit = (vars: number, constraints: number, type: ProblemType) => {
     setNumVariables(vars);
@@ -32,93 +47,200 @@ export default function RamificacionPage() {
     setStep('table');
   };
 
-  const handleSolve = async (input: MilpInput) => {
-    setLoading(true);
+  const findFractionalVar = (x: number[], types: VariableType[]): number => {
+    for (let i = 0; i < x.length; i++) {
+      const isRestricted = types[i] === 'integer' || types[i] === 'natural' || types[i] === 'binary';
+      if (isRestricted) {
+        const isInteger = Math.abs(x[i] - Math.round(x[i])) < 1e-5;
+        if (!isInteger) return i;
+      }
+    }
+    return -1;
+  };
+
+  const solveNode = async (node: TreeNodeData, currentTree: TreeNodeData): Promise<TreeNodeData> => {
+    node.status = 'solving';
+    setTree(JSON.parse(JSON.stringify(currentTree)));
+    await new Promise(resolve => setTimeout(resolve, 800));
+
     try {
-      // 1. Ajustar función objetivo (SciPy siempre minimiza)
-      const c = problemType === 'max' ? input.objectiveCoefficients.map(coef => -coef) : input.objectiveCoefficients;
+      const response = await fetch('/api/solve_mpl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          c: originalC.current,
+          A_ub: originalA_ub.current.length > 0 ? originalA_ub.current : null,
+          b_ub: originalB_ub.current.length > 0 ? originalB_ub.current : null,
+          A_eq: originalA_eq.current.length > 0 ? originalA_eq.current : null,
+          b_eq: originalB_eq.current.length > 0 ? originalB_eq.current : null,
+          bounds: node.bounds
+        }),
+      });
 
-      // 2. Separar restricciones
-      const A_ub: number[][] = [], b_ub: number[] = [];
-      const A_eq: number[][] = [], b_eq: number[] = [];
+      const data = await response.json();
 
-      input.constraints.forEach(constraint => {
-        if (constraint.type === '<=') {
-          A_ub.push(constraint.coefficients);
-          b_ub.push(constraint.rhs);
-        } else if (constraint.type === '>=') {
-          A_ub.push(constraint.coefficients.map(coef => -coef));
-          b_ub.push(-constraint.rhs);
-        } else if (constraint.type === '=') {
-          A_eq.push(constraint.coefficients);
-          b_eq.push(constraint.rhs);
+      if (!data.success || data.status === 2) {
+        node.status = 'infeasible';
+        node.solution = null;
+        setTree(JSON.parse(JSON.stringify(currentTree)));
+        return node;
+      }
+
+      const actualZ = problemType === 'max' ? -data.optimal_value : data.optimal_value;
+      node.solution = { z: actualZ, x: data.optimal_variables };
+
+      const fracVarIndex = findFractionalVar(data.optimal_variables, problemVariableTypes);
+
+      if (fracVarIndex === -1) {
+        node.status = 'feasible';
+        if (problemType === 'max') {
+          if (actualZ > zCotaRef.current) {
+            zCotaRef.current = actualZ;
+            setZCota(actualZ);
+          }
+        } else {
+          if (actualZ < zCotaRef.current) {
+            zCotaRef.current = actualZ;
+            setZCota(actualZ);
+          }
         }
-      });
+        setTree(JSON.parse(JSON.stringify(currentTree)));
+        return node;
+      }
 
-      // 3. Definir límites (bounds) e integralidad
-      const bounds = input.variableTypes.map(type => {
-        if (type === 'binary') return [0, 1];
-        if (type === 'natural') return [1, null];
-        return [0, null]; // continuous o integer
-      });
+      if (problemType === 'max' && actualZ <= zCotaRef.current) {
+        node.status = 'pruned';
+        setTree(JSON.parse(JSON.stringify(currentTree)));
+        return node;
+      }
+      if (problemType === 'min' && actualZ >= zCotaRef.current) {
+        node.status = 'pruned';
+        setTree(JSON.parse(JSON.stringify(currentTree)));
+        return node;
+      }
 
-      const integrality = input.variableTypes.map(type => 
-        (type === 'integer' || type === 'natural' || type === 'binary') ? 1 : 0
-      );
+      // 🚨 AQUÍ ESTÁ EL CAMBIO CLAVE PARA VARIABLES BINARIAS
+      node.status = 'branched';
+      node.branchingVar = fracVarIndex;
+      
+      const val = data.optimal_variables[fracVarIndex];
+      const isBinary = problemVariableTypes[fracVarIndex] === 'binary';
 
-      const requestData = {
-        c,
-        A_ub: A_ub.length > 0 ? A_ub : null,
-        b_ub: b_ub.length > 0 ? b_ub : null,
-        A_eq: A_eq.length > 0 ? A_eq : null,
-        b_eq: b_eq.length > 0 ? b_eq : null,
-        bounds,
-        integrality
+      const leftBounds = JSON.parse(JSON.stringify(node.bounds));
+      const rightBounds = JSON.parse(JSON.stringify(node.bounds));
+
+      if (isBinary) {
+        // Si es binaria, forzamos estrictamente a 0 y a 1
+        leftBounds[fracVarIndex] = [0, 0];
+        rightBounds[fracVarIndex] = [1, 1];
+      } else {
+        // Si es entera o continua, usamos piso y techo
+        leftBounds[fracVarIndex][1] = Math.floor(val);
+        rightBounds[fracVarIndex][0] = Math.ceil(val);
+      }
+
+      const leftChild: TreeNodeData = {
+        id: node.id + 'L',
+        level: node.level + 1,
+        bounds: leftBounds,
+        solution: null,
+        status: 'pending',
+        branchingVar: null,
+        children: []
       };
 
-      // 4. Petición al nuevo endpoint exclusivo de Python
-      const response = await fetch('/api/test', { method: 'POST' });
-      const responseText = await response.text();
+      const rightChild: TreeNodeData = {
+        id: node.id + 'R',
+        level: node.level + 1,
+        bounds: rightBounds,
+        solution: null,
+        status: 'pending',
+        branchingVar: null,
+        children: []
+      };
 
-      if (!response.ok) {
-        throw new Error(responseText || `Error del servidor (Código ${response.status})`);
-      }
+      node.children = [leftChild, rightChild];
+      setTree(JSON.parse(JSON.stringify(currentTree)));
 
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (e) {
-        throw new Error("El servidor no devolvió un JSON válido. Respuesta: " + responseText);
-      }
+      await solveNode(leftChild, currentTree);
+      await solveNode(rightChild, currentTree);
 
-      setResult({
-        success: data.success,
-        message: data.message,
-        optimal_value: data.optimal_value !== null ? (problemType === 'max' ? -data.optimal_value : data.optimal_value) : null,
-        optimal_variables: data.optimal_variables
-      });
-      setStep('result');
+      return node;
+
     } catch (error) {
-      setResult({
-        success: false,
-        message: error instanceof Error ? error.message : 'Error desconocido al conectar con Python',
-        optimal_value: null,
-        optimal_variables: null
-      });
-      setStep('result');
-    } finally {
-      setLoading(false);
+      console.error("Error en nodo:", error);
+      node.status = 'infeasible';
+      setTree(JSON.parse(JSON.stringify(currentTree)));
+      return node;
     }
+  };
+
+  const handleSolve = async (input: MilpInput) => {
+    setProblemVariableTypes(input.variableTypes);
+    setIsSolving(true);
+    
+    // 🚨 INICIALIZAR COTA SEGÚN EL TIPO DE PROBLEMA
+    const initialZCota = problemType === 'max' ? -Infinity : Infinity;
+    zCotaRef.current = initialZCota;
+    setZCota(initialZCota);
+
+    originalC.current = problemType === 'max' 
+      ? input.objectiveCoefficients.map(c => -c) 
+      : input.objectiveCoefficients;
+    
+    originalA_ub.current = [];
+    originalB_ub.current = [];
+    originalA_eq.current = [];
+    originalB_eq.current = [];
+
+    input.constraints.forEach(constraint => {
+      if (constraint.type === '<=') {
+        originalA_ub.current.push(constraint.coefficients);
+        originalB_ub.current.push(constraint.rhs);
+      } else if (constraint.type === '>=') {
+        originalA_ub.current.push(constraint.coefficients.map(c => -c));
+        originalB_ub.current.push(-constraint.rhs);
+      } else if (constraint.type === '=') {
+        originalA_eq.current.push(constraint.coefficients);
+        originalB_eq.current.push(constraint.rhs);
+      }
+    });
+
+    const initialBounds: [number, number | null][] = input.variableTypes.map(type => {
+      if (type === 'binary') return [0, 1];
+      if (type === 'natural') return [1, null];
+      return [0, null];
+    });
+
+    const rootNode: TreeNodeData = {
+      id: '0',
+      level: 0,
+      bounds: initialBounds,
+      solution: null,
+      status: 'pending',
+      branchingVar: null,
+      children: []
+    };
+
+    setTree(rootNode);
+    setStep('result');
+
+    await solveNode(rootNode, rootNode);
+    
+    setIsSolving(false);
   };
 
   const handleReset = () => {
     setStep('input');
-    setResult(null);
-    setNumVariables(0);
-    setNumConstraints(0);
+    setTree(null);
+    const initialZCota = problemType === 'max' ? -Infinity : Infinity;
+    zCotaRef.current = initialZCota;
+    setZCota(initialZCota);
+    setIsSolving(false);
   };
 
   usePageMeta('Método de Ramificación y Acotamiento');
+  const modelType = getModelType(problemVariableTypes);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50 py-8 px-4">
@@ -132,8 +254,13 @@ export default function RamificacionPage() {
           <h1 className="text-4xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
             Método de Ramificación y Acotamiento
           </h1>
-          <p className="text-muted-foreground">Resolución de problemas de Programación Lineal Entera (MILP)</p>
-          <p className="font-medium">Elaborado por: Hernández Peña Angel Adrian</p>
+          <div className="flex justify-center items-center gap-3">
+            <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-sm font-bold border border-emerald-200">
+              Modelo: {modelType}
+            </span>
+            <p className="text-muted-foreground">Resolución de problemas de Programación Lineal Entera</p>
+          </div>
+          <p className="font-medium text-sm text-gray-500">Elaborado por: Hernández Peña Angel Adrian</p>
         </div>
 
         {step === 'input' && <RamificacionInputForm onSubmit={handleInputSubmit} />}
@@ -151,21 +278,28 @@ export default function RamificacionPage() {
         {step === 'result' && (
           <div className="space-y-8">
             <div className="flex justify-center gap-4">
-              <Button variant="outline" onClick={() => setStep('table')} disabled={loading}>
+              <Button variant="outline" onClick={() => setStep('table')} disabled={isSolving}>
                 <ArrowLeft className="mr-2" size={16} /> Modificar Datos
               </Button>
-              <Button onClick={handleReset} disabled={loading} className="bg-emerald-600 hover:bg-emerald-700">
+              <Button onClick={handleReset} disabled={isSolving} className="bg-emerald-600 hover:bg-emerald-700">
                 Nuevo Problema
               </Button>
             </div>
 
-            {loading ? (
-              <div className="text-center py-12">
-                <p className="text-xl text-muted-foreground animate-pulse">Ejecutando solver de Python (Branch & Bound)...</p>
+            {isSolving && (
+              <div className="text-center py-4">
+                <p className="text-lg text-emerald-700 font-semibold animate-pulse">
+                  Explorando árbol de soluciones...
+                </p>
               </div>
-            ) : result && (
-              <RamificacionResultDisplay result={result} numVariables={numVariables} />
             )}
+
+            <BranchingTreeDisplay 
+              tree={tree}
+              variableTypes={problemVariableTypes}
+              zCota={zCota}
+              problemType={problemType}
+            />
           </div>
         )}
       </div>
