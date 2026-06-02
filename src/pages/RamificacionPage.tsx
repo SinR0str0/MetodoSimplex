@@ -29,21 +29,26 @@ export default function RamificacionPage() {
   const [problemVariableTypes, setProblemVariableTypes] = useState<VariableType[]>([]);
   
   const [tree, setTree] = useState<TreeNodeData | null>(null);
-  const [zCota, setZCota] = useState<number>(-Infinity); // Solo para la UI
+  const [zCota, setZCota] = useState<number>(-Infinity);
   const [isSolving, setIsSolving] = useState(false);
+  
+  // 🚨 NUEVO ESTADO: Para guardar el vector de la mejor solución
+  const [bestSolutionVector, setBestSolutionVector] = useState<number[] | null>(null);
 
-  // 🚨 REFS PARA LA LÓGICA (no se pierden en la recursión)
+  const problemTypeRef = useRef<ProblemType>('max');
   const zCotaRef = useRef<number>(-Infinity);
   const originalC = useRef<number[]>([]);
   const originalA_ub = useRef<number[][]>([]);
   const originalB_ub = useRef<number[]>([]);
   const originalA_eq = useRef<number[][]>([]);
   const originalB_eq = useRef<number[]>([]);
+  const variableTypesRef = useRef<VariableType[]>([]);
 
   const handleInputSubmit = (vars: number, constraints: number, type: ProblemType) => {
     setNumVariables(vars);
     setNumConstraints(constraints);
     setProblemType(type);
+    problemTypeRef.current = type;
     setStep('table');
   };
 
@@ -86,55 +91,63 @@ export default function RamificacionPage() {
         return node;
       }
 
-      const actualZ = problemType === 'max' ? -data.optimal_value : data.optimal_value;
+      const actualZ = problemTypeRef.current === 'max' ? -data.optimal_value : data.optimal_value;
       node.solution = { z: actualZ, x: data.optimal_variables };
 
-      const fracVarIndex = findFractionalVar(data.optimal_variables, problemVariableTypes);
+      const fracVarIndex = findFractionalVar(data.optimal_variables, variableTypesRef.current);
 
       if (fracVarIndex === -1) {
         node.status = 'feasible';
-        if (problemType === 'max') {
+        
+        // 🚨 Verificar si mejora la cota Y guardar el vector
+        let isBetter = false;
+        if (problemTypeRef.current === 'max') {
           if (actualZ > zCotaRef.current) {
-            zCotaRef.current = actualZ;
-            setZCota(actualZ);
+            isBetter = true;
           }
         } else {
           if (actualZ < zCotaRef.current) {
-            zCotaRef.current = actualZ;
-            setZCota(actualZ);
+            isBetter = true;
           }
         }
+
+        const isFirst = (problemTypeRef.current === 'max' && zCotaRef.current === -Infinity) ||
+                        (problemTypeRef.current === 'min' && zCotaRef.current === Infinity);
+
+        if (isBetter || isFirst) {
+          zCotaRef.current = actualZ;
+          setZCota(actualZ);
+          setBestSolutionVector(data.optimal_variables); // 🚨 Guardar el vector
+        }
+        
         setTree(JSON.parse(JSON.stringify(currentTree)));
         return node;
       }
 
-      if (problemType === 'max' && actualZ <= zCotaRef.current) {
+      if (problemTypeRef.current === 'max' && actualZ <= zCotaRef.current) {
         node.status = 'pruned';
         setTree(JSON.parse(JSON.stringify(currentTree)));
         return node;
       }
-      if (problemType === 'min' && actualZ >= zCotaRef.current) {
+      if (problemTypeRef.current === 'min' && actualZ >= zCotaRef.current) {
         node.status = 'pruned';
         setTree(JSON.parse(JSON.stringify(currentTree)));
         return node;
       }
 
-      // 🚨 AQUÍ ESTÁ EL CAMBIO CLAVE PARA VARIABLES BINARIAS
       node.status = 'branched';
       node.branchingVar = fracVarIndex;
       
       const val = data.optimal_variables[fracVarIndex];
-      const isBinary = problemVariableTypes[fracVarIndex] === 'binary';
+      const isBinary = variableTypesRef.current[fracVarIndex] === 'binary';
 
       const leftBounds = JSON.parse(JSON.stringify(node.bounds));
       const rightBounds = JSON.parse(JSON.stringify(node.bounds));
 
       if (isBinary) {
-        // Si es binaria, forzamos estrictamente a 0 y a 1
         leftBounds[fracVarIndex] = [0, 0];
         rightBounds[fracVarIndex] = [1, 1];
       } else {
-        // Si es entera o continua, usamos piso y techo
         leftBounds[fracVarIndex][1] = Math.floor(val);
         rightBounds[fracVarIndex][0] = Math.ceil(val);
       }
@@ -176,15 +189,18 @@ export default function RamificacionPage() {
   };
 
   const handleSolve = async (input: MilpInput) => {
+    variableTypesRef.current = input.variableTypes;
     setProblemVariableTypes(input.variableTypes);
     setIsSolving(true);
+    setBestSolutionVector(null); // 🚨 Resetear vector
     
-    // 🚨 INICIALIZAR COTA SEGÚN EL TIPO DE PROBLEMA
-    const initialZCota = problemType === 'max' ? -Infinity : Infinity;
+    const currentProblemType = problemTypeRef.current;
+    
+    const initialZCota = currentProblemType === 'max' ? -Infinity : Infinity;
     zCotaRef.current = initialZCota;
     setZCota(initialZCota);
 
-    originalC.current = problemType === 'max' 
+    originalC.current = currentProblemType === 'max' 
       ? input.objectiveCoefficients.map(c => -c) 
       : input.objectiveCoefficients;
     
@@ -233,7 +249,8 @@ export default function RamificacionPage() {
   const handleReset = () => {
     setStep('input');
     setTree(null);
-    const initialZCota = problemType === 'max' ? -Infinity : Infinity;
+    setBestSolutionVector(null); // 🚨 Resetear
+    const initialZCota = problemTypeRef.current === 'max' ? -Infinity : Infinity;
     zCotaRef.current = initialZCota;
     setZCota(initialZCota);
     setIsSolving(false);
@@ -298,6 +315,7 @@ export default function RamificacionPage() {
               tree={tree}
               variableTypes={problemVariableTypes}
               zCota={zCota}
+              bestSolutionVector={bestSolutionVector}
               problemType={problemType}
             />
           </div>

@@ -13,10 +13,11 @@ interface BranchingTreeDisplayProps {
   tree: TreeNodeData | null;
   variableTypes: string[];
   zCota: number;
+  bestSolutionVector: number[] | null; // 🚨 NUEVA PROP
   problemType: 'max' | 'min';
 }
 
-export default function BranchingTreeDisplay({ tree, variableTypes, zCota, problemType }: BranchingTreeDisplayProps) {
+export default function BranchingTreeDisplay({ tree, variableTypes, zCota, bestSolutionVector, problemType }: BranchingTreeDisplayProps) {
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -105,27 +106,23 @@ export default function BranchingTreeDisplay({ tree, variableTypes, zCota, probl
               <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-[calc(100%-12rem)] h-0.5 bg-gray-400"></div>
             )}
             {node.children.map((child, index) => {
-              // Calcular la restricción aplicada a esta rama
               const varIdx = node.branchingVar ?? 0;
               const val = node.solution?.x[varIdx] ?? 0;
               const floor = Math.floor(val);
               const ceil = Math.ceil(val);
               
-              // index 0 es la rama izquierda (<= piso), index 1 es la derecha (>= techo)
               const constraintLabel = index === 0 
                 ? `x${varIdx + 1} ≤ ${floor}` 
                 : `x${varIdx + 1} ≥ ${ceil}`;
 
               return (
                 <div key={child.id} className="flex flex-col items-center">
-                  {/* Línea vertical al hijo con la etiqueta de restricción */}
                   <div className="w-0.5 h-6 bg-gray-400 relative flex justify-center">
                     <span className="absolute -top-3 bg-white px-2 py-0.5 text-[11px] font-bold text-gray-700 border border-gray-300 rounded shadow-sm whitespace-nowrap z-10">
                       {constraintLabel}
                     </span>
                   </div>
                   
-                  {/* Renderizar el hijo recursivamente */}
                   {renderNode(child)}
                 </div>
               );
@@ -144,15 +141,33 @@ export default function BranchingTreeDisplay({ tree, variableTypes, zCota, probl
 
   if (!tree) return <div className="text-center text-gray-500">Esperando solución...</div>;
 
+  // 🚨 Función para formatear el vector
+  const formatVector = (vec: number[] | null) => {
+    if (!vec) return '(...)';
+    return `(${vec.map((v, i) => `${formatNumber(v)}`).join(', ')})`;
+  };
+
   return (
     <div className="w-full">
-      <div className="mb-4 flex justify-center items-center gap-4 text-sm bg-white p-3 rounded-lg border shadow-sm">
-        <span className="font-bold">Cota Actual (Z*):</span>
-        <span className="text-xl font-bold text-emerald-600">
-          {zCota === (problemType === 'max' ? -Infinity : Infinity) 
-            ? (problemType === 'max' ? '-∞' : '∞') 
-            : formatNumber(zCota)}
-        </span>
+      {/* 🚨 BANNER SUPERIOR CON LA SOLUCIÓN ÓPTIMA */}
+      <div className="mb-4 flex flex-col md:flex-row justify-center items-center gap-4 text-sm bg-white p-4 rounded-lg border shadow-sm">
+        <div className="flex items-center gap-2">
+          <span className="font-bold text-gray-700">Cota Actual (Z*):</span>
+          <span className="text-xl font-bold text-emerald-600">
+            {zCota === (problemType === 'max' ? -Infinity : Infinity) 
+              ? (problemType === 'max' ? '-∞' : '∞') 
+              : formatNumber(zCota)}
+          </span>
+        </div>
+        
+        {bestSolutionVector && (
+          <div className="flex items-center gap-2 border-l-2 border-gray-200 pl-4">
+            <span className="font-bold text-gray-700">Solución Óptima:</span>
+            <span className="text-lg font-mono font-bold text-blue-700 bg-blue-50 px-3 py-1 rounded border border-blue-200">
+              {formatVector(bestSolutionVector)}
+            </span>
+          </div>
+        )}
       </div>
 
       <div 
@@ -164,7 +179,6 @@ export default function BranchingTreeDisplay({ tree, variableTypes, zCota, probl
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
       >
-        {/* Controles */}
         <div className="absolute top-4 right-4 z-10 flex gap-2">
           <button 
             onClick={() => setScale(prev => Math.min(3, prev * 1.2))}
@@ -186,7 +200,6 @@ export default function BranchingTreeDisplay({ tree, variableTypes, zCota, probl
           </button>
         </div>
 
-        {/* Árbol con transformaciones */}
         <div 
           className="absolute inset-0 flex items-center justify-center"
           style={{
