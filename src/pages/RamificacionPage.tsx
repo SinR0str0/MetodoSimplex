@@ -4,7 +4,7 @@ import RamificacionInputForm from '@/components/RamificacionInputForm';
 import RamificacionTable from '@/components/RamificacionTable';
 import BranchingTreeDisplay from '@/components/BranchingTreeDisplay';
 import { Button } from '@/components/ui/button';
-import { ProblemType, MilpInput, VariableType } from '@/utils/milpTypes';
+import { ProblemType, MilpInput, VariableType, ConstraintType } from '@/utils/milpTypes';
 import { getModelType } from '@/utils/modelClassifier';
 import { ArrowLeft } from 'lucide-react';
 import { usePageMeta } from '@/hooks/usePageMeta';
@@ -31,9 +31,12 @@ export default function RamificacionPage() {
   const [tree, setTree] = useState<TreeNodeData | null>(null);
   const [zCota, setZCota] = useState<number>(-Infinity);
   const [isSolving, setIsSolving] = useState(false);
-  
-  // 🚨 NUEVO ESTADO: Para guardar el vector de la mejor solución
   const [bestSolutionVector, setBestSolutionVector] = useState<number[] | null>(null);
+
+  // 🚨 NUEVOS ESTADOS PARA LA TABLA (Viven en el padre, no se borran)
+  const [objectiveCoefficients, setObjectiveCoefficients] = useState<string[]>([]);
+  const [variableTypesState, setVariableTypesState] = useState<VariableType[]>([]);
+  const [constraintsState, setConstraintsState] = useState<{ coefficients: string[]; type: ConstraintType; rhs: string }[]>([]);
 
   const problemTypeRef = useRef<ProblemType>('max');
   const zCotaRef = useRef<number>(-Infinity);
@@ -44,17 +47,29 @@ export default function RamificacionPage() {
   const originalB_eq = useRef<number[]>([]);
   const variableTypesRef = useRef<VariableType[]>([]);
 
-  const handleInputSubmit = (vars: number, constraints: number, type: ProblemType) => {
+  const handleInputSubmit = (vars: number, constraintsCount: number, type: ProblemType) => {
     setNumVariables(vars);
-    setNumConstraints(constraints);
+    setNumConstraints(constraintsCount);
     setProblemType(type);
     problemTypeRef.current = type;
+    
+    // 🚨 Inicializar los campos de la tabla con valores por defecto
+    setObjectiveCoefficients(Array(vars).fill('0'));
+    setVariableTypesState(Array(vars).fill('continuous'));
+    setConstraintsState(
+      Array(constraintsCount).fill(null).map(() => ({
+        coefficients: Array(vars).fill('0'),
+        type: '<=' as ConstraintType,
+        rhs: '0'
+      }))
+    );
+    
     setStep('table');
   };
 
   const findFractionalVar = (x: number[], types: VariableType[]): number => {
     for (let i = 0; i < x.length; i++) {
-      const isRestricted = types[i] === 'integer' || types[i] === 'natural' || types[i] === 'binary';
+      const isRestricted = types[i] === 'integer' || types[i] === 'binary';
       if (isRestricted) {
         const isInteger = Math.abs(x[i] - Math.round(x[i])) < 1e-5;
         if (!isInteger) return i;
@@ -98,18 +113,9 @@ export default function RamificacionPage() {
 
       if (fracVarIndex === -1) {
         node.status = 'feasible';
-        
-        // 🚨 Verificar si mejora la cota Y guardar el vector
         let isBetter = false;
-        if (problemTypeRef.current === 'max') {
-          if (actualZ > zCotaRef.current) {
-            isBetter = true;
-          }
-        } else {
-          if (actualZ < zCotaRef.current) {
-            isBetter = true;
-          }
-        }
+        if (problemTypeRef.current === 'max' && actualZ > zCotaRef.current) isBetter = true;
+        else if (problemTypeRef.current === 'min' && actualZ < zCotaRef.current) isBetter = true;
 
         const isFirst = (problemTypeRef.current === 'max' && zCotaRef.current === -Infinity) ||
                         (problemTypeRef.current === 'min' && zCotaRef.current === Infinity);
@@ -117,24 +123,36 @@ export default function RamificacionPage() {
         if (isBetter || isFirst) {
           zCotaRef.current = actualZ;
           setZCota(actualZ);
-          setBestSolutionVector(data.optimal_variables); // 🚨 Guardar el vector
+          setBestSolutionVector(data.optimal_variables);
         }
+        setTree(JSON.parse(JSON.stringify(currentTree)));
+        return node;
+      }
+
+      // Poda por cota mejorada para modelos puros
+      const currentModelType = getModelType(variableTypesRef.current);
+      const isPureModel = currentModelType === 'Entero Puro' || currentModelType === 'Binario';
+
+      if (problemTypeRef.current === 'max') {
+        // En maximización, el mejor valor entero posible es el PISO de la Z relajada
+        const bestPossibleIntegerZ = isPureModel ? Math.floor(actualZ) : actualZ;
         
-        setTree(JSON.parse(JSON.stringify(currentTree)));
-        return node;
+        if (bestPossibleIntegerZ <= zCotaRef.current) {
+          node.status = 'pruned';
+          setTree(JSON.parse(JSON.stringify(currentTree)));
+          return node; // 🚨 SE DETIENE: No puede superar la cota actual
+        }
+      } else {
+        // En minimización, el mejor valor entero posible es el TECHO de la Z relajada
+        const bestPossibleIntegerZ = isPureModel ? Math.ceil(actualZ) : actualZ;
+        
+        if (bestPossibleIntegerZ >= zCotaRef.current) {
+          node.status = 'pruned';
+          setTree(JSON.parse(JSON.stringify(currentTree)));
+          return node; // 🚨 SE DETIENE: No puede ser menor que la cota actual
+        }
       }
-
-      if (problemTypeRef.current === 'max' && actualZ <= zCotaRef.current) {
-        node.status = 'pruned';
-        setTree(JSON.parse(JSON.stringify(currentTree)));
-        return node;
-      }
-      if (problemTypeRef.current === 'min' && actualZ >= zCotaRef.current) {
-        node.status = 'pruned';
-        setTree(JSON.parse(JSON.stringify(currentTree)));
-        return node;
-      }
-
+      
       node.status = 'branched';
       node.branchingVar = fracVarIndex;
       
@@ -192,10 +210,9 @@ export default function RamificacionPage() {
     variableTypesRef.current = input.variableTypes;
     setProblemVariableTypes(input.variableTypes);
     setIsSolving(true);
-    setBestSolutionVector(null); // 🚨 Resetear vector
+    setBestSolutionVector(null);
     
     const currentProblemType = problemTypeRef.current;
-    
     const initialZCota = currentProblemType === 'max' ? -Infinity : Infinity;
     zCotaRef.current = initialZCota;
     setZCota(initialZCota);
@@ -222,9 +239,20 @@ export default function RamificacionPage() {
       }
     });
 
+    input.variableTypes.forEach((type, index) => {
+      if (type === 'binary') {
+        // Crear un array de ceros del tamaño del número de variables
+        const binaryConstraintRow = new Array(numVariables).fill(0);
+        // Poner un 1 en la posición de la variable binaria actual
+        binaryConstraintRow[index] = 1;
+        
+        // Agregarla como una restricción de tipo "<=" (A_ub * x <= b_ub)
+        originalA_ub.current.push(binaryConstraintRow);
+        originalB_ub.current.push(1); // xi <= 1
+      }
+    });
+
     const initialBounds: [number, number | null][] = input.variableTypes.map(type => {
-      if (type === 'binary') return [0, 1];
-      if (type === 'natural') return [1, null];
       return [0, null];
     });
 
@@ -242,18 +270,24 @@ export default function RamificacionPage() {
     setStep('result');
 
     await solveNode(rootNode, rootNode);
-    
     setIsSolving(false);
   };
 
   const handleReset = () => {
     setStep('input');
     setTree(null);
-    setBestSolutionVector(null); // 🚨 Resetear
+    setBestSolutionVector(null);
     const initialZCota = problemTypeRef.current === 'max' ? -Infinity : Infinity;
     zCotaRef.current = initialZCota;
     setZCota(initialZCota);
     setIsSolving(false);
+    // Nota: No borramos numVariables, etc., para que el usuario pueda reutilizarlos si quiere.
+    // Si quieres que "Nuevo Problema" borre todo, descomenta las siguientes líneas:
+    // setNumVariables(0);
+    // setNumConstraints(0);
+    // setObjectiveCoefficients([]);
+    // setVariableTypesState([]);
+    // setConstraintsState([]);
   };
 
   usePageMeta('Método de Ramificación y Acotamiento');
@@ -287,6 +321,12 @@ export default function RamificacionPage() {
             numVariables={numVariables}
             numConstraints={numConstraints}
             problemType={problemType}
+            objectiveCoefficients={objectiveCoefficients}
+            setObjectiveCoefficients={setObjectiveCoefficients}
+            variableTypes={variableTypesState}
+            setVariableTypes={setVariableTypesState}
+            constraints={constraintsState}
+            setConstraints={setConstraintsState}
             onSolve={handleSolve}
             onBack={() => setStep('input')}
           />

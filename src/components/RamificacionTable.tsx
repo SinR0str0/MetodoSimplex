@@ -1,40 +1,69 @@
-import { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConstraintType, ProblemType, VariableType, MilpInput } from '@/utils/milpTypes';
 
 interface RamificacionTableProps {
   numVariables: number;
   numConstraints: number;
   problemType: ProblemType;
+  objectiveCoefficients: string[];
+  setObjectiveCoefficients: React.Dispatch<React.SetStateAction<string[]>>;
+  variableTypes: VariableType[];
+  setVariableTypes: React.Dispatch<React.SetStateAction<VariableType[]>>;
+  constraints: { coefficients: string[]; type: ConstraintType; rhs: string }[];
+  setConstraints: React.Dispatch<React.SetStateAction<{ coefficients: string[]; type: ConstraintType; rhs: string }[]>>;
   onSolve: (input: MilpInput) => void;
   onBack: () => void;
 }
 
-export default function RamificacionTable({ numVariables, numConstraints, problemType, onSolve, onBack }: RamificacionTableProps) {
-  const [objectiveCoefficients, setObjectiveCoefficients] = useState<string[]>(Array(numVariables).fill('0'));
-  const [variableTypes, setVariableTypes] = useState<VariableType[]>(Array(numVariables).fill('continuous'));
-  const [constraints, setConstraints] = useState<{ coefficients: string[]; type: ConstraintType; rhs: string }[]>(
-    Array(numConstraints).fill(null).map(() => ({ coefficients: Array(numVariables).fill('0'), type: '<=' as ConstraintType, rhs: '0' }))
-  );
+export default function RamificacionTable({
+  numVariables,
+  numConstraints,
+  problemType,
+  objectiveCoefficients,
+  setObjectiveCoefficients,
+  variableTypes,
+  setVariableTypes,
+  constraints,
+  setConstraints,
+  onSolve,
+  onBack,
+}: RamificacionTableProps) {
+
+  const handleObjectiveChange = (index: number, value: string) => {
+    const newCoefficients = [...objectiveCoefficients];
+    newCoefficients[index] = value;
+    setObjectiveCoefficients(newCoefficients);
+  };
+
+  const handleVariableTypeChange = (index: number, type: VariableType) => {
+    const newTypes = [...variableTypes];
+    newTypes[index] = type;
+    setVariableTypes(newTypes);
+  };
+
+  const handleConstraintCoefficientChange = (constraintIndex: number, varIndex: number, value: string) => {
+    const newConstraints = [...constraints];
+    newConstraints[constraintIndex].coefficients[varIndex] = value;
+    setConstraints(newConstraints);
+  };
+
+  const handleConstraintTypeChange = (constraintIndex: number, type: ConstraintType) => {
+    const newConstraints = [...constraints];
+    newConstraints[constraintIndex].type = type;
+    setConstraints(newConstraints);
+  };
+
+  const handleRhsChange = (constraintIndex: number, value: string) => {
+    const newConstraints = [...constraints];
+    newConstraints[constraintIndex].rhs = value;
+    setConstraints(newConstraints);
+  };
 
   const handleSolve = () => {
-
-    const hasNonContinuous = variableTypes.some(type => type !== 'continuous');
-    
-    if (!hasNonContinuous) {
-      alert(
-        '⚠️ Advertencia:\n\n' +
-        'Todas las variables están configuradas como "Continuas".\n\n' +
-        'El método de Ramificación y Acotamiento está diseñado para problemas con al menos una variable entera o binaria.\n\n' +
-        'Si su problema solo tiene variables continuas, es más eficiente y adecuado utilizar el Método Simplex.'
-      );
-      return; // Detiene la ejecución y no envía los datos al backend
-    }
-
     try {
       const input: MilpInput = {
         numVariables,
@@ -79,12 +108,17 @@ export default function RamificacionTable({ numVariables, numConstraints, proble
               </TableRow>
             </TableHeader>
             <TableBody>
-              {/* Función Objetivo */}
               <TableRow className="bg-emerald-50">
                 <TableCell className="font-medium">Función Objetivo</TableCell>
                 {Array.from({ length: numVariables }, (_, i) => (
                   <TableCell key={i} className="relative">
-                    <Input type="number" step="any" value={objectiveCoefficients[i]} onChange={(e) => setObjectiveCoefficients(prev => { const n = [...prev]; n[i] = e.target.value; return n; })} className="w-20 text-center mx-auto" />
+                    <Input 
+                      type="number" 
+                      step="any" 
+                      value={objectiveCoefficients[i]} 
+                      onChange={(e) => handleObjectiveChange(i, e.target.value)} 
+                      className="w-20 text-center mx-auto" 
+                    />
                     {i < numVariables - 1 && <span className="absolute right-[-6px] top-[50%] transform -translate-y-[50%] text-gray-500 font-bold">+</span>}
                   </TableCell>
                 ))}
@@ -92,18 +126,23 @@ export default function RamificacionTable({ numVariables, numConstraints, proble
                 <TableCell></TableCell>
               </TableRow>
 
-              {/* Restricciones */}
               {Array.from({ length: numConstraints }, (_, i) => (
                 <TableRow key={i}>
                   <TableCell className="font-medium">Restricción {i + 1}</TableCell>
                   {Array.from({ length: numVariables }, (_, j) => (
                     <TableCell key={j} className="relative">
-                      <Input type="number" step="any" value={constraints[i].coefficients[j]} onChange={(e) => setConstraints(prev => { const n = [...prev]; n[i].coefficients[j] = e.target.value; return n; })} className="w-20 text-center mx-auto" />
+                      <Input 
+                        type="number" 
+                        step="any" 
+                        value={constraints[i].coefficients[j]} 
+                        onChange={(e) => handleConstraintCoefficientChange(i, j, e.target.value)} 
+                        className="w-20 text-center mx-auto" 
+                      />
                       {j < numVariables - 1 && <span className="absolute right-[-6px] top-[50%] transform -translate-y-[50%] text-gray-500 font-bold">+</span>}
                     </TableCell>
                   ))}
                   <TableCell>
-                    <Select value={constraints[i].type} onValueChange={(value) => setConstraints(prev => { const n = [...prev]; n[i].type = value as ConstraintType; return n; })}>
+                    <Select value={constraints[i].type} onValueChange={(value) => handleConstraintTypeChange(i, value as ConstraintType)}>
                       <SelectTrigger className="w-20 text-center mx-auto"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="<=">≤</SelectItem>
@@ -113,17 +152,22 @@ export default function RamificacionTable({ numVariables, numConstraints, proble
                     </Select>
                   </TableCell>
                   <TableCell>
-                    <Input type="number" step="any" value={constraints[i].rhs} onChange={(e) => setConstraints(prev => { const n = [...prev]; n[i].rhs = e.target.value; return n; })} className="w-20 text-center mx-auto" />
+                    <Input 
+                      type="number" 
+                      step="any" 
+                      value={constraints[i].rhs} 
+                      onChange={(e) => handleRhsChange(i, e.target.value)} 
+                      className="w-20 text-center mx-auto" 
+                    />
                   </TableCell>
                 </TableRow>
               ))}
 
-              {/* Selector de Tipo de Variable (NUEVO) */}
               <TableRow className="bg-purple-50">
                 <TableCell className="font-medium">Tipo de Variable</TableCell>
                 {Array.from({ length: numVariables }, (_, i) => (
                   <TableCell key={i}>
-                    <Select value={variableTypes[i]} onValueChange={(value) => setVariableTypes(prev => { const n = [...prev]; n[i] = value as VariableType; return n; })}>
+                    <Select value={variableTypes[i]} onValueChange={(value) => handleVariableTypeChange(i, value as VariableType)}>
                       <SelectTrigger className="w-24 text-center mx-auto"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="continuous">Continua</SelectItem>
