@@ -1,11 +1,9 @@
-from http.server import BaseHTTPRequestHandler
 import json
 
 def handler(request):
     """
     Función handler para Vercel Serverless Functions
     """
-    # Solo aceptar POST
     if request.method != 'POST':
         return {
             'statusCode': 405,
@@ -17,10 +15,9 @@ def handler(request):
         # Leer el body de la petición
         body = json.loads(request.body)
         
-        # Por ahora, solo devolver un mensaje de éxito
         response_data = {
             'success': True,
-            'message': '¡Python funciona en Vercel!',
+            'message': '¡Python funciona en Vercel con pyproject.toml!',
             'received_data': body
         }
         
