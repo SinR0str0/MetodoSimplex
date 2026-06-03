@@ -5,12 +5,14 @@ from scipy.optimize import linprog
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
-            # Leer el body de la petición
-            content_length = int(self.headers['Content-Length'])
+            print("🐍 Python: Recibiendo petición POST")
+            
+            content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length)
             body = json.loads(post_data.decode('utf-8'))
             
-            # Extraer datos del problema
+            print(f"📦 Python: Datos recibidos: {body}")
+            
             c = body.get('c')
             A_ub = body.get('A_ub')
             b_ub = body.get('b_ub')
@@ -18,7 +20,8 @@ class handler(BaseHTTPRequestHandler):
             b_eq = body.get('b_eq')
             bounds = body.get('bounds')
             
-            # Resolver con HiGHS
+            print("⚙️ Python: Ejecutando linprog...")
+            
             res = linprog(
                 c,
                 A_ub=A_ub,
@@ -28,8 +31,9 @@ class handler(BaseHTTPRequestHandler):
                 bounds=bounds,
                 method='highs'
             )
-            print(res)
-            # Preparar respuesta
+            
+            print(f"✅ Python: Resultado: success={res.success}, status={res.status}")
+            
             response_data = {
                 'success': bool(res.success),
                 'status': int(res.status),
@@ -39,7 +43,6 @@ class handler(BaseHTTPRequestHandler):
                 'iterations': int(res.nit) if hasattr(res, 'nit') else None
             }
             
-            # Enviar respuesta
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
@@ -47,9 +50,14 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(response_data).encode('utf-8'))
             
         except Exception as e:
+            print(f"💥 Python: Error: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            
             error_response = {
                 'success': False,
-                'error': str(e)
+                'error': str(e),
+                'traceback': traceback.format_exc()
             }
             self.send_response(500)
             self.send_header('Content-Type', 'application/json')
@@ -58,7 +66,6 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(error_response).encode('utf-8'))
     
     def do_OPTIONS(self):
-        # Manejar preflight CORS
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')

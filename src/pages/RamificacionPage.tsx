@@ -34,7 +34,6 @@ export default function RamificacionPage() {
   const [isUnbounded, setIsUnbounded] = useState<boolean>(false);
   const [bestSolutionVector, setBestSolutionVector] = useState<number[] | null>(null);
 
-  // 🚨 NUEVOS ESTADOS PARA LA TABLA (Viven en el padre, no se borran)
   const [objectiveCoefficients, setObjectiveCoefficients] = useState<string[]>([]);
   const [variableTypesState, setVariableTypesState] = useState<VariableType[]>([]);
   const [constraintsState, setConstraintsState] = useState<{ coefficients: string[]; type: ConstraintType; rhs: string }[]>([]);
@@ -54,7 +53,6 @@ export default function RamificacionPage() {
     setProblemType(type);
     problemTypeRef.current = type;
     
-    // 🚨 Inicializar los campos de la tabla con valores por defecto
     setObjectiveCoefficients(Array(vars).fill('0'));
     setVariableTypesState(Array(vars).fill('continuous'));
     setConstraintsState(
@@ -80,31 +78,54 @@ export default function RamificacionPage() {
   };
 
   const solveNode = async (node: TreeNodeData, currentTree: TreeNodeData): Promise<TreeNodeData> => {
+    console.log(`🚀 [Nodo ${node.id}] Iniciando resolución...`);
     node.status = 'solving';
     setTree(JSON.parse(JSON.stringify(currentTree)));
     await new Promise(resolve => setTimeout(resolve, 800));
 
     try {
-      const response = await fetch('/local-api.py', {
+      console.log(`📡 [Nodo ${node.id}] Enviando petición al backend...`);
+      
+      const requestBody = {
+        c: originalC.current,
+        A_ub: originalA_ub.current.length > 0 ? originalA_ub.current : null,
+        b_ub: originalB_ub.current.length > 0 ? originalB_ub.current : null,
+        A_eq: originalA_eq.current.length > 0 ? originalA_eq.current : null,
+        b_eq: originalB_eq.current.length > 0 ? originalB_eq.current : null,
+        bounds: node.bounds
+      };
+      
+      console.log(`📦 [Nodo ${node.id}] Body de la petición:`, requestBody);
+
+      const response = await fetch('/api/solve_mpl', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          c: originalC.current,
-          A_ub: originalA_ub.current.length > 0 ? originalA_ub.current : null,
-          b_ub: originalB_ub.current.length > 0 ? originalB_ub.current : null,
-          A_eq: originalA_eq.current.length > 0 ? originalA_eq.current : null,
-          b_eq: originalB_eq.current.length > 0 ? originalB_eq.current : null,
-          bounds: node.bounds
-        }),
+        body: JSON.stringify(requestBody),
       });
 
-      const data = await response.json();
+      console.log(`📨 [Nodo ${node.id}] Respuesta HTTP status:`, response.status);
 
-      if (data.status === 4 || (data.message && data.message.toLowerCase().includes('unbounded'))) {
+      const data = await response.json();
+      
+      console.log(`✅ [Nodo ${node.id}] Respuesta del solver:`, data);
+
+      // 🚨 DETECCIÓN MEJORADA DE NO ACOTADO
+      const isUnboundedResult = 
+        data.status === 4 ||
+        (data.message && (
+          data.message.toLowerCase().includes('unbounded') ||
+          data.message.toLowerCase().includes('infeasible or unbounded')
+        )) ||
+        (data.optimal_value !== null && 
+         (data.optimal_value === -Infinity || 
+          data.optimal_value === Infinity ||
+          Math.abs(data.optimal_value) > 1e20));
+
+      if (isUnboundedResult) {
+        console.log(`🚨 [Nodo ${node.id}] DETECTADO COMO NO ACOTADO`);
         node.status = 'unbounded';
         node.solution = null;
         
-        // Si es el nodo raíz, el problema completo es no acotado
         if (node.id === '0') {
           setIsUnbounded(true);
         }
@@ -113,8 +134,9 @@ export default function RamificacionPage() {
         return node;
       }
 
-      // Si es infactible (status 2 o 3)
+      // Si es infactible
       if (!data.success || data.status === 2 || data.status === 3) {
+        console.log(`❌ [Nodo ${node.id}] INFACITBLE`);
         node.status = 'infeasible';
         node.solution = null;
         setTree(JSON.parse(JSON.stringify(currentTree)));
@@ -144,27 +166,25 @@ export default function RamificacionPage() {
         return node;
       }
 
-      // Poda por cota mejorada para modelos puros
+      // Poda por cota
       const currentModelType = getModelType(variableTypesRef.current);
       const isPureModel = currentModelType === 'Entero Puro' || currentModelType === 'Binario';
 
       if (problemTypeRef.current === 'max') {
-        // En maximización, el mejor valor entero posible es el PISO de la Z relajada
         const bestPossibleIntegerZ = isPureModel ? Math.floor(actualZ) : actualZ;
         
         if (bestPossibleIntegerZ <= zCotaRef.current) {
           node.status = 'pruned';
           setTree(JSON.parse(JSON.stringify(currentTree)));
-          return node; // 🚨 SE DETIENE: No puede superar la cota actual
+          return node;
         }
       } else {
-        // En minimización, el mejor valor entero posible es el TECHO de la Z relajada
         const bestPossibleIntegerZ = isPureModel ? Math.ceil(actualZ) : actualZ;
         
         if (bestPossibleIntegerZ >= zCotaRef.current) {
           node.status = 'pruned';
           setTree(JSON.parse(JSON.stringify(currentTree)));
-          return node; // 🚨 SE DETIENE: No puede ser menor que la cota actual
+          return node;
         }
       }
       
@@ -214,19 +234,20 @@ export default function RamificacionPage() {
       return node;
 
     } catch (error) {
-      console.error("Error en nodo:", error);
+      console.error(`💥 [Nodo ${node.id}] Error:`, error);
       node.status = 'infeasible';
       setTree(JSON.parse(JSON.stringify(currentTree)));
       return node;
     }
   };
 
-    const handleSolve = async (input: MilpInput) => {
+  const handleSolve = async (input: MilpInput) => {
+    console.log('🎯 Iniciando resolución del problema...');
     variableTypesRef.current = input.variableTypes;
     setProblemVariableTypes(input.variableTypes);
     setIsSolving(true);
     setBestSolutionVector(null);
-    setIsUnbounded(false); // 🚨 RESETEAR AL INICIO DE CADA RESOLUCIÓN
+    setIsUnbounded(false);
     
     const currentProblemType = problemTypeRef.current;
     const initialZCota = currentProblemType === 'max' ? -Infinity : Infinity;
@@ -294,13 +315,6 @@ export default function RamificacionPage() {
     setZCota(initialZCota);
     setIsSolving(false);
     setIsUnbounded(false);
-    // Nota: No borramos numVariables, etc., para que el usuario pueda reutilizarlos si quiere.
-    // Si quieres que "Nuevo Problema" borre todo, descomenta las siguientes líneas:
-    // setNumVariables(0);
-    // setNumConstraints(0);
-    // setObjectiveCoefficients([]);
-    // setVariableTypesState([]);
-    // setConstraintsState([]);
   };
 
   usePageMeta('Método de Ramificación y Acotamiento');
