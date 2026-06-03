@@ -4,7 +4,7 @@ interface TreeNodeData {
   id: string;
   level: number;
   solution: { z: number; x: number[] } | null;
-  status: 'pending' | 'solving' | 'feasible' | 'infeasible' | 'pruned' | 'branched';
+  status: 'pending' | 'solving' | 'feasible' | 'infeasible' | 'pruned' | 'branched' | 'unbounded';
   branchingVar: number | null;
   children: TreeNodeData[];
 }
@@ -13,11 +13,20 @@ interface BranchingTreeDisplayProps {
   tree: TreeNodeData | null;
   variableTypes: string[];
   zCota: number;
-  bestSolutionVector: number[] | null; // 🚨 NUEVA PROP
+  bestSolutionVector: number[] | null;
   problemType: 'max' | 'min';
+  isUnbounded?: boolean; // 🚨 PROP AGREGADA
 }
 
-export default function BranchingTreeDisplay({ tree, variableTypes, zCota, bestSolutionVector, problemType }: BranchingTreeDisplayProps) {
+// 🚨 AGREGADO: Desestructurar isUnbounded
+export default function BranchingTreeDisplay({ 
+  tree, 
+  variableTypes, 
+  zCota, 
+  bestSolutionVector, 
+  problemType,
+  isUnbounded = false // 🚨 VALOR POR DEFECTO
+}: BranchingTreeDisplayProps) {
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -56,6 +65,7 @@ export default function BranchingTreeDisplay({ tree, variableTypes, zCota, bestS
 
   const getNodeColors = (status: TreeNodeData['status']) => {
     switch (status) {
+      case 'unbounded': return 'border-orange-500 bg-orange-50 text-orange-800';
       case 'feasible': return 'border-green-500 bg-green-50 text-green-800';
       case 'infeasible': return 'border-red-500 bg-red-50 text-red-800';
       case 'pruned': return 'border-gray-400 bg-gray-100 text-gray-500 line-through';
@@ -89,6 +99,7 @@ export default function BranchingTreeDisplay({ tree, variableTypes, zCota, bestS
           </div>
 
           <div className="text-center text-xs font-semibold uppercase">
+            {node.status === 'unbounded' && '∞ No Acotado'}
             {node.status === 'feasible' && '✓ Solución Factible'}
             {node.status === 'infeasible' && '✗ No Factible'}
             {node.status === 'pruned' && '⊘ Agotado'}
@@ -107,18 +118,26 @@ export default function BranchingTreeDisplay({ tree, variableTypes, zCota, bestS
             )}
             {node.children.map((child, index) => {
               const varIdx = node.branchingVar ?? 0;
-              const val = node.solution?.x[varIdx] ?? 0;
-              const floor = Math.floor(val);
-              const ceil = Math.ceil(val);
               
-              const constraintLabel = index === 0 
-                ? `x${varIdx + 1} ≤ ${floor}` 
-                : `x${varIdx + 1} ≥ ${ceil}`;
+              // 🚨 AGREGADO: Manejo de variables binarias
+              const isBinary = variableTypes[varIdx] === 'binary';
+              let constraintLabel = '';
+              
+              if (isBinary) {
+                constraintLabel = index === 0 ? `x${varIdx + 1} = 0` : `x${varIdx + 1} = 1`;
+              } else {
+                const val = node.solution?.x[varIdx] ?? 0;
+                const floor = Math.floor(val);
+                const ceil = Math.ceil(val);
+                constraintLabel = index === 0 ? `x${varIdx + 1} ≤ ${floor}` : `x${varIdx + 1} ≥ ${ceil}`;
+              }
 
               return (
                 <div key={child.id} className="flex flex-col items-center">
                   <div className="w-0.5 h-6 bg-gray-400 relative flex justify-center">
-                    <span className="absolute -top-3 bg-white px-2 py-0.5 text-[11px] font-bold text-gray-700 border border-gray-300 rounded shadow-sm whitespace-nowrap z-10">
+                    <span className={`absolute -top-3 px-2 py-0.5 text-[11px] font-bold border rounded shadow-sm whitespace-nowrap z-10 ${
+                      isBinary ? 'bg-purple-50 text-purple-700 border-purple-300' : 'bg-white text-gray-700 border-gray-300'
+                    }`}>
                       {constraintLabel}
                     </span>
                   </div>
@@ -141,7 +160,6 @@ export default function BranchingTreeDisplay({ tree, variableTypes, zCota, bestS
 
   if (!tree) return <div className="text-center text-gray-500">Esperando solución...</div>;
 
-  // 🚨 Función para formatear el vector
   const formatVector = (vec: number[] | null) => {
     if (!vec) return '(...)';
     return `(${vec.map((v, i) => `${formatNumber(v)}`).join(', ')})`;
@@ -149,7 +167,19 @@ export default function BranchingTreeDisplay({ tree, variableTypes, zCota, bestS
 
   return (
     <div className="w-full">
-      {/* 🚨 BANNER SUPERIOR CON LA SOLUCIÓN ÓPTIMA */}
+      {/* 🚨 AGREGADO: ALERTA GLOBAL SI ES NO ACOTADO */}
+      {isUnbounded && (
+        <div className="mb-4 p-4 bg-orange-100 border-2 border-orange-500 rounded-lg text-center">
+          <p className="text-lg font-bold text-orange-800">
+            ⚠️ El problema es NO ACOTADO
+          </p>
+          <p className="text-sm text-orange-700 mt-1">
+            La función objetivo puede {problemType === 'max' ? 'crecer infinitamente' : 'decrecer infinitamente'}. 
+            No existe solución óptima finita.
+          </p>
+        </div>
+      )}
+
       <div className="mb-4 flex flex-col md:flex-row justify-center items-center gap-4 text-sm bg-white p-4 rounded-lg border shadow-sm">
         <div className="flex items-center gap-2">
           <span className="font-bold text-gray-700">Cota Actual (Z*):</span>
@@ -213,7 +243,9 @@ export default function BranchingTreeDisplay({ tree, variableTypes, zCota, bestS
         </div>
       </div>
 
-      <div className="mt-6 flex justify-center gap-6 text-xs">
+      {/* 🚨 AGREGADO: Cuadro naranja en la leyenda */}
+      <div className="mt-6 flex justify-center gap-6 text-xs flex-wrap">
+        <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-orange-50 border-2 border-orange-500"></div><span>No Acotado</span></div>
         <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-green-50 border-2 border-green-500"></div><span>Factible (Entero)</span></div>
         <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-red-50 border-2 border-red-500"></div><span>No Factible</span></div>
         <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-white border-2 border-gray-300"></div><span>Pendiente / Ramificado</span></div>

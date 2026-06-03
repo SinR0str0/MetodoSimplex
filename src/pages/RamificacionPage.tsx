@@ -16,7 +16,7 @@ interface TreeNodeData {
   level: number;
   bounds: [number, number | null][];
   solution: { z: number; x: number[] } | null;
-  status: 'pending' | 'solving' | 'feasible' | 'infeasible' | 'pruned' | 'branched';
+  status: 'pending' | 'solving' | 'feasible' | 'infeasible' | 'pruned' | 'branched' | 'unbounded';
   branchingVar: number | null;
   children: TreeNodeData[];
 }
@@ -31,6 +31,7 @@ export default function RamificacionPage() {
   const [tree, setTree] = useState<TreeNodeData | null>(null);
   const [zCota, setZCota] = useState<number>(-Infinity);
   const [isSolving, setIsSolving] = useState(false);
+  const [isUnbounded, setIsUnbounded] = useState<boolean>(false);
   const [bestSolutionVector, setBestSolutionVector] = useState<number[] | null>(null);
 
   // 🚨 NUEVOS ESTADOS PARA LA TABLA (Viven en el padre, no se borran)
@@ -84,7 +85,7 @@ export default function RamificacionPage() {
     await new Promise(resolve => setTimeout(resolve, 800));
 
     try {
-      const response = await fetch('/api/solve_mpl', {
+      const response = await fetch('/local-api.py', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -99,7 +100,21 @@ export default function RamificacionPage() {
 
       const data = await response.json();
 
-      if (!data.success || data.status === 2) {
+      if (data.status === 4 || (data.message && data.message.toLowerCase().includes('unbounded'))) {
+        node.status = 'unbounded';
+        node.solution = null;
+        
+        // Si es el nodo raíz, el problema completo es no acotado
+        if (node.id === '0') {
+          setIsUnbounded(true);
+        }
+        
+        setTree(JSON.parse(JSON.stringify(currentTree)));
+        return node;
+      }
+
+      // Si es infactible (status 2 o 3)
+      if (!data.success || data.status === 2 || data.status === 3) {
         node.status = 'infeasible';
         node.solution = null;
         setTree(JSON.parse(JSON.stringify(currentTree)));
@@ -206,11 +221,12 @@ export default function RamificacionPage() {
     }
   };
 
-  const handleSolve = async (input: MilpInput) => {
+    const handleSolve = async (input: MilpInput) => {
     variableTypesRef.current = input.variableTypes;
     setProblemVariableTypes(input.variableTypes);
     setIsSolving(true);
     setBestSolutionVector(null);
+    setIsUnbounded(false); // 🚨 RESETEAR AL INICIO DE CADA RESOLUCIÓN
     
     const currentProblemType = problemTypeRef.current;
     const initialZCota = currentProblemType === 'max' ? -Infinity : Infinity;
@@ -241,14 +257,10 @@ export default function RamificacionPage() {
 
     input.variableTypes.forEach((type, index) => {
       if (type === 'binary') {
-        // Crear un array de ceros del tamaño del número de variables
         const binaryConstraintRow = new Array(numVariables).fill(0);
-        // Poner un 1 en la posición de la variable binaria actual
         binaryConstraintRow[index] = 1;
-        
-        // Agregarla como una restricción de tipo "<=" (A_ub * x <= b_ub)
         originalA_ub.current.push(binaryConstraintRow);
-        originalB_ub.current.push(1); // xi <= 1
+        originalB_ub.current.push(1);
       }
     });
 
@@ -281,6 +293,7 @@ export default function RamificacionPage() {
     zCotaRef.current = initialZCota;
     setZCota(initialZCota);
     setIsSolving(false);
+    setIsUnbounded(false);
     // Nota: No borramos numVariables, etc., para que el usuario pueda reutilizarlos si quiere.
     // Si quieres que "Nuevo Problema" borre todo, descomenta las siguientes líneas:
     // setNumVariables(0);
@@ -357,6 +370,7 @@ export default function RamificacionPage() {
               zCota={zCota}
               bestSolutionVector={bestSolutionVector}
               problemType={problemType}
+              isUnbounded={isUnbounded}
             />
           </div>
         )}

@@ -28,7 +28,7 @@ class handler(BaseHTTPRequestHandler):
                 bounds=bounds,
                 method='highs'
             )
-            
+            print(res)
             # Preparar respuesta
             response_data = {
                 'success': bool(res.success),
